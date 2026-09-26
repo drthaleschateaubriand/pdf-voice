@@ -114,7 +114,7 @@ export default function IpadReader(){
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
- const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0});
+ const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),fileKey=useRef('');
 
@@ -145,11 +145,46 @@ export default function IpadReader(){
   for(const span of textDivsRef.current)span.classList.remove('ipad-speaking');
  }
 
- function highlightSentence(i:number){
+ function highlightRange(range:{start:number;end:number}|undefined){
   clearSpokenHighlight();
-  const range=sentenceRangesRef.current[i];
   if(!range)return;
   for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-speaking');
+ }
+
+ function highlightSentence(i:number){
+  highlightRange(sentenceRangesRef.current[i]);
+ }
+
+ function buildRangesForSegment(startItem:number,endItem:number,startOffset=0,endOffset?:number){
+  const items=textItemsRef.current;
+  const start=Math.max(0,Math.min(startItem,items.length-1));
+  const end=Math.max(start,Math.min(endItem,items.length-1));
+  let text='',normalized='',cursor=0;
+  const charRanges:Array<{item:number;start:number;end:number}>=[];
+  for(let i=start;i<=end;i++){
+   const it=items[i];let part=it?.str||'';
+   if(i===start&&startOffset>0)part=part.slice(Math.min(startOffset,part.length));
+   if(i===end&&typeof endOffset==='number')part=part.slice(0,Math.min(endOffset,part.length));
+   if(!part)continue;
+   text+=part+(it?.hasEOL?'\n':' ');
+   const clean=part.replace(/\s+/g,' ').trim();
+   if(!clean)continue;
+   if(normalized.length)normalized+=' ';
+   const charStart=normalized.length;
+   normalized+=clean;
+   charRanges.push({item:i,start:charStart,end:normalized.length});
+  }
+  const list=splitSentences(text);
+  const ranges:Array<{start:number;end:number}>=[];
+  for(const sentence of list){
+   const found=normalized.indexOf(sentence,cursor);
+   const sentenceStart=found>=0?found:cursor;
+   const sentenceEnd=sentenceStart+sentence.length;
+   const hits=charRanges.filter(r=>r.end>sentenceStart&&r.start<sentenceEnd);
+   ranges.push(hits.length?{start:hits[0].item,end:hits[hits.length-1].item}:{start,end:start});
+   cursor=sentenceEnd;
+  }
+  return {list,ranges};
  }
 
  function stop(reset=false){
@@ -162,6 +197,7 @@ export default function IpadReader(){
  const clearSelection=useCallback(()=>{
   setSelectedText('');
   selectionStartRef.current={item:0,offset:0};
+  selectionEndRef.current={item:0,offset:0};
   try{window.getSelection()?.removeAllRanges();}catch{}
  },[]);
 
@@ -172,11 +208,15 @@ export default function IpadReader(){
   if(!layer.contains(range.commonAncestorContainer)){return;}
   const text=selection.toString().replace(/\s+/g,' ').trim();
   if(!text){setSelectedText('');return;}
-  const rawStart=range.startContainer;
+  const rawStart=range.startContainer,rawEnd=range.endContainer;
   const startElement=(rawStart.nodeType===Node.ELEMENT_NODE?rawStart as Element:rawStart.parentElement)?.closest<HTMLElement>('[data-item]');
-  const itemNumber=Number(startElement?.dataset.item||0);
-  const offset=rawStart.nodeType===Node.TEXT_NODE?range.startOffset:0;
-  selectionStartRef.current={item:Number.isFinite(itemNumber)?itemNumber:0,offset:Math.max(0,offset)};
+  const endElement=(rawEnd.nodeType===Node.ELEMENT_NODE?rawEnd as Element:rawEnd.parentElement)?.closest<HTMLElement>('[data-item]');
+  const startItem=Number(startElement?.dataset.item||0),endItem=Number(endElement?.dataset.item||startItem);
+  const startOffset=rawStart.nodeType===Node.TEXT_NODE?range.startOffset:0;
+  const endText=(endElement?.textContent||'');
+  const endOffset=rawEnd.nodeType===Node.TEXT_NODE?range.endOffset:endText.length;
+  selectionStartRef.current={item:Number.isFinite(startItem)?startItem:0,offset:Math.max(0,startOffset)};
+  selectionEndRef.current={item:Number.isFinite(endItem)?endItem:selectionStartRef.current.item,offset:Math.max(0,endOffset)};
   setSelectedText(text);
   setCompactControls(true);
  },[]);
@@ -319,7 +359,7 @@ export default function IpadReader(){
   return url;
  }
 
- async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true){
+ async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
   if(!playWanted.current||currentToken!==token.current)return;
   if(i>=list.length){
    if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
@@ -327,7 +367,7 @@ export default function IpadReader(){
    if(d&&n<d.numPages){
     try{
      const next=await extractPage(d,n+1);
-     if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,trackIndex);
+     if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
     }catch(e){
      setError(e instanceof Error?e.message:'Falha ao avançar página.');
      stop();
@@ -337,7 +377,7 @@ export default function IpadReader(){
    }
    return;
   }
-  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else{clearSpokenHighlight();}setMode('loading');setStage('Gerando voz…');
+  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Gerando voz…');
   try{
    const current=audioUrl(list[i]);
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
@@ -346,7 +386,7 @@ export default function IpadReader(){
    let audio=audioRef.current;
    if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
    audio.pause();audio.src=url;audio.playbackRate=speed;audio.currentTime=0;
-   audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex);};
+   audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
    audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
    await audio.play();
    if(currentToken===token.current){setMode('playing');setStage('Lendo');}
@@ -361,26 +401,26 @@ export default function IpadReader(){
 
  function readSelectionOnly(){
   const text=selectedText.trim();if(!text)return;
-  const list=splitSentences(text);if(!list.length)return;
-  stop();playWanted.current=true;setStage('Lendo seleção');
+  const start=selectionStartRef.current,end=selectionEndRef.current;
+  const built=buildRangesForSegment(start.item,end.item,start.offset,end.offset);
+  const list=splitSentences(text);
+  if(!list.length)return;
+  const ranges=built.ranges.length===list.length?built.ranges:Array.from({length:list.length},()=>({start:start.item,end:end.item}));
+  stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
+  playWanted.current=true;setStage('Lendo seleção');
   const currentToken=++token.current;
-  void playAt(0,list,currentToken,false,false);
+  void playAt(0,list,currentToken,false,false,ranges);
  }
 
  function readFromSelection(){
   const items=textItemsRef.current,{item,offset}=selectionStartRef.current;
   if(!items.length)return;
-  let text='';
-  for(let i=Math.max(0,item);i<items.length;i++){
-   const it=items[i];let part=it.str||'';
-   if(i===item&&offset>0)part=part.slice(Math.min(offset,part.length));
-   if(!part)continue;
-   text+=part+(it.hasEOL?'\n':' ');
-  }
-  const list=splitSentences(text);if(!list.length)return;
-  stop();playWanted.current=true;setStage('Lendo a partir da seleção');
+  const built=buildRangesForSegment(item,items.length-1,offset);
+  if(!built.list.length)return;
+  stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
+  playWanted.current=true;setStage('Lendo a partir da seleção');
   const currentToken=++token.current;
-  void playAt(0,list,currentToken,true,false);
+  void playAt(0,built.list,currentToken,true,false,built.ranges);
  }
 
  async function testVoice(){
