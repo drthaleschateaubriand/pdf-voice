@@ -1,5 +1,6 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
+import {addCloudBookmark,getCloudSession,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,type CloudSession} from './paper-cloud';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
@@ -112,7 +113,10 @@ export default function IpadReader(){
  const [selectedText,setSelectedText]=useState('');
  const [bookmarks,setBookmarks]=useState<number[]>([]);
  const [highlightEnabled,setHighlightEnabled]=useState(true);
- const highlightEnabledRef=useRef(true);
+ const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
+ const [accountOpen,setAccountOpen]=useState(false),[accountEmail,setAccountEmail]=useState(''),[accountPassword,setAccountPassword]=useState(''),[accountBusy,setAccountBusy]=useState(false),[accountMessage,setAccountMessage]=useState('');
+ const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
+ const currentFileRef=useRef<{name:string;size:number}|null>(null);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
@@ -127,7 +131,8 @@ export default function IpadReader(){
 
  useEffect(()=>{
   try{
-   const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {speed?:number;highlightEnabled?:boolean};
+   const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {voice?:string;speed?:number;highlightEnabled?:boolean};
+   if(typeof prefs.voice==='string'&&prefs.voice)setVoice(prefs.voice);
    if(typeof prefs.speed==='number'&&[0.75,1,1.25,1.5,1.75,2].includes(prefs.speed))setSpeed(prefs.speed);
    if(typeof prefs.highlightEnabled==='boolean'){setHighlightEnabled(prefs.highlightEnabled);highlightEnabledRef.current=prefs.highlightEnabled;}
   }catch{}
@@ -138,7 +143,101 @@ export default function IpadReader(){
    const current=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}');
    localStorage.setItem('paper-voice-preferences',JSON.stringify({...current,...next}));
   }catch{}
+  if(cloudSessionRef.current){
+   void saveCloudPreferences({
+    ...(typeof next.voice==='string'?{voice:next.voice}:{}),
+    ...(typeof next.speed==='number'?{speed:next.speed}:{}),
+    ...(typeof next.highlightEnabled==='boolean'?{highlight_enabled:next.highlightEnabled}:{})
+   }).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
+  }
  }
+
+ function applyCloudPrefs(prefs:Awaited<ReturnType<typeof loadCloudPreferences>>){
+  if(!prefs)return;
+  if(prefs.voice){setVoice(prefs.voice);persistPreferences({voice:prefs.voice});}
+  if(typeof prefs.speed==='number'){setSpeed(Number(prefs.speed));persistPreferences({speed:Number(prefs.speed)});}
+  if(typeof prefs.highlight_enabled==='boolean'){
+   highlightEnabledRef.current=prefs.highlight_enabled;
+   setHighlightEnabled(prefs.highlight_enabled);
+   persistPreferences({highlightEnabled:prefs.highlight_enabled});
+   if(!prefs.highlight_enabled)clearSpokenHighlight();
+  }
+ }
+
+ async function attachCloudSession(session:CloudSession){
+  cloudSessionRef.current=session;setCloudSession(session);setCloudStatus('Sincronização ativa');
+  try{
+   const prefs=await loadCloudPreferences();
+   if(prefs)applyCloudPrefs(prefs);
+   else{
+    let local:{voice?:string;speed?:number;highlightEnabled?:boolean}={};
+    try{local=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}');}catch{}
+    await saveCloudPreferences({voice:local.voice||voice,speed:local.speed||speed,highlight_enabled:typeof local.highlightEnabled==='boolean'?local.highlightEnabled:highlightEnabledRef.current});
+   }
+  }catch{setCloudStatus('Conta conectada · sincronização pendente');}
+ }
+
+ async function syncCurrentBookFromCloud(){
+  const d=docRef.current,file=currentFileRef.current;
+  if(!d||!file||!fileKey.current||!cloudSessionRef.current)return;
+  setCloudStatus('Sincronizando livro…');
+  try{
+   const localMarks=bookmarks;
+   const remote=await openCloudBook({fingerprint:fileKey.current,fileName:file.name,fileSize:file.size,totalPages:d.numPages});
+   cloudBookIdRef.current=remote.bookId;
+   const merged=[...new Set([...localMarks,...remote.bookmarks])].sort((a,b)=>a-b);
+   setBookmarks(merged);
+   try{localStorage.setItem('paper-voice-bookmarks:'+fileKey.current,JSON.stringify(merged));}catch{}
+   for(const mark of merged)if(!remote.bookmarks.includes(mark))void addCloudBookmark(remote.bookId,mark).catch(()=>{});
+   if(remote.progress&&remote.progress.page>=1&&remote.progress.page<=d.numPages){
+    await extractPage(d,remote.progress.page,remote.progress.sentence_index||0);
+   }else{
+    void saveCloudProgress(remote.bookId,pageRef.current,indexRef.current).catch(()=>{});
+   }
+   setCloudStatus('Sincronização ativa');
+  }catch{setCloudStatus('Conta conectada · usando dados locais');}
+ }
+
+ async function handleSignIn(){
+  if(!accountEmail.trim()||!accountPassword){setAccountMessage('Digite e-mail e senha.');return;}
+  setAccountBusy(true);setAccountMessage('');
+  try{
+   const session=await signInCloud(accountEmail.trim(),accountPassword);
+   await attachCloudSession(session);
+   setAccountPassword('');
+   setAccountMessage('Conta conectada. Progresso e preferências serão sincronizados.');
+   await syncCurrentBookFromCloud();
+  }catch(e){setAccountMessage(e instanceof Error?e.message:'Não foi possível entrar.');}
+  finally{setAccountBusy(false);}
+ }
+
+ async function handleSignUp(){
+  if(!accountEmail.trim()||accountPassword.length<8){setAccountMessage('Use um e-mail válido e uma senha com pelo menos 8 caracteres.');return;}
+  setAccountBusy(true);setAccountMessage('');
+  try{
+   const result=await signUpCloud(accountEmail.trim(),accountPassword);
+   if(result.session){
+    await attachCloudSession(result.session);
+    setAccountMessage('Conta criada e conectada.');
+    await syncCurrentBookFromCloud();
+   }else setAccountMessage('Conta criada. Confirme o e-mail recebido e depois toque em Entrar.');
+  }catch(e){setAccountMessage(e instanceof Error?e.message:'Não foi possível criar a conta.');}
+  finally{setAccountBusy(false);}
+ }
+
+ async function handleSignOut(){
+  setAccountBusy(true);
+  await signOutCloud();
+  cloudSessionRef.current=null;cloudBookIdRef.current='';
+  setCloudSession(null);setCloudStatus('Somente neste aparelho');setAccountPassword('');setAccountMessage('Sessão encerrada.');
+  setAccountBusy(false);
+ }
+
+ useEffect(()=>{
+  void getCloudSession().then(session=>{
+   if(session)void attachCloudSession(session);
+  }).catch(()=>{});
+ },[]);
 
  useEffect(()=>{
   fetch('/api/speech').then(r=>r.json()).then((d:{providers:Provider[]})=>{
@@ -322,6 +421,7 @@ export default function IpadReader(){
   if(fileKey.current){
    try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:n,index:safeIndex}));}catch{}
   }
+  if(cloudBookIdRef.current)void saveCloudProgress(cloudBookIdRef.current,n,safeIndex).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
   return list;
  }
 
@@ -342,10 +442,14 @@ export default function IpadReader(){
    }).promise;
    await docRef.current?.destroy();
    docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompactControls(true);setCompact(true);
+   currentFileRef.current={name:file.name,size:file.size};
+   cloudBookIdRef.current='';
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
+   let localMarks:number[]=[];
    try{
     const savedMarks=JSON.parse(localStorage.getItem('paper-voice-bookmarks:'+fileKey.current)||'[]');
-    setBookmarks(Array.isArray(savedMarks)?savedMarks.filter((n:unknown)=>Number.isInteger(n)&&Number(n)>=1&&Number(n)<=next.numPages).map(Number).sort((a:number,b:number)=>a-b):[]);
+    localMarks=Array.isArray(savedMarks)?savedMarks.filter((n:unknown)=>Number.isInteger(n)&&Number(n)>=1&&Number(n)<=next.numPages).map(Number).sort((a:number,b:number)=>a-b):[];
+    setBookmarks(localMarks);
    }catch{setBookmarks([]);}
    let start=1,savedIndex=0;
    try{
@@ -353,6 +457,21 @@ export default function IpadReader(){
     if(Number.isInteger(saved.page)&&saved.page>=1&&saved.page<=next.numPages)start=saved.page;
     if(Number.isInteger(saved.index)&&saved.index>=0)savedIndex=saved.index;
    }catch{}
+   if(cloudSessionRef.current){
+    try{
+     setCloudStatus('Sincronizando livro…');
+     const remote=await openCloudBook({fingerprint:fileKey.current,fileName:file.name,fileSize:file.size,totalPages:next.numPages});
+     cloudBookIdRef.current=remote.bookId;
+     const merged=[...new Set([...localMarks,...remote.bookmarks])].sort((a,b)=>a-b);
+     setBookmarks(merged);
+     try{localStorage.setItem('paper-voice-bookmarks:'+fileKey.current,JSON.stringify(merged));}catch{}
+     for(const mark of merged)if(!remote.bookmarks.includes(mark))void addCloudBookmark(remote.bookId,mark).catch(()=>{});
+     if(remote.progress&&remote.progress.page>=1&&remote.progress.page<=next.numPages){
+      start=remote.progress.page;savedIndex=remote.progress.sentence_index||0;
+     }
+     setCloudStatus('Sincronização ativa');
+    }catch{setCloudStatus('Conta conectada · usando dados locais');}
+   }
    stageName='extrair texto';
    await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
    await extractPage(next,start,savedIndex);
@@ -412,6 +531,7 @@ export default function IpadReader(){
    if(fileKey.current){
     try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:pageRef.current,index:i}));}catch{}
    }
+   if(cloudBookIdRef.current)void saveCloudProgress(cloudBookIdRef.current,pageRef.current,i).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
   }catch(e){
    setError(e instanceof Error?e.message:'Falha na narração.');
    stop();
@@ -494,7 +614,12 @@ export default function IpadReader(){
 
  function toggleBookmark(){
   if(!doc)return;
-  saveBookmarks(bookmarks.includes(page)?bookmarks.filter(n=>n!==page):[...bookmarks,page]);
+  const exists=bookmarks.includes(page);
+  saveBookmarks(exists?bookmarks.filter(n=>n!==page):[...bookmarks,page]);
+  if(cloudBookIdRef.current){
+   const action=exists?removeCloudBookmark(cloudBookIdRef.current,page):addCloudBookmark(cloudBookIdRef.current,page);
+   void action.catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
+  }
  }
 
  function openBookmark(value:string){
@@ -552,9 +677,10 @@ export default function IpadReader(){
   {(!compact||!doc)&&<header style={top}>
    <div style={{minWidth:0,flex:1}}>
     <div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div>
-    <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'}</div>
+    <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'} · {cloudStatus}</div>
    </div>
    {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
+   <button style={button} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
    <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
    <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{const f=e.target.files?.[0];if(f)void openFile(f);e.currentTarget.value='';}}/>
@@ -622,6 +748,39 @@ export default function IpadReader(){
     </select>
    </div>
   </footer>}
+
+  {accountOpen&&<div style={{position:'fixed',inset:0,zIndex:70,background:'rgba(0,0,0,.48)',display:'grid',placeItems:'center',padding:18}} onClick={()=>setAccountOpen(false)}>
+   <div style={{...card,width:'min(430px,94vw)',padding:18,boxShadow:'0 18px 60px rgba(0,0,0,.28)'}} onClick={e=>e.stopPropagation()}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:12}}>
+     <div>
+      <div style={{fontSize:20,fontWeight:750}}>Conta Paper Voice</div>
+      <div style={small}>{cloudSession?'Sincronização entre aparelhos ativada':'Entre para sincronizar leitura e preferências'}</div>
+     </div>
+     <button type="button" style={{...button,padding:'7px 10px'}} onClick={()=>setAccountOpen(false)}>Fechar</button>
+    </div>
+    {cloudSession?<div style={{display:'grid',gap:10}}>
+     <div style={{...card,background:'#f7f7f4'}}>
+      <div style={{fontWeight:650}}>{cloudSession.user.email||'Conta conectada'}</div>
+      <div style={{...small,marginTop:4}}>Página, trecho, marcadores, voz, velocidade e destaque são sincronizados.</div>
+     </div>
+     {accountMessage&&<div style={small}>{accountMessage}</div>}
+     <button type="button" style={button} disabled={accountBusy} onClick={()=>void handleSignOut()}>{accountBusy?'Aguarde…':'Sair da conta'}</button>
+    </div>:<div style={{display:'grid',gap:10}}>
+     <label style={{display:'grid',gap:5,fontSize:13,fontWeight:600}}>E-mail
+      <input type="email" autoComplete="email" value={accountEmail} onChange={e=>setAccountEmail(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'white'}}/>
+     </label>
+     <label style={{display:'grid',gap:5,fontSize:13,fontWeight:600}}>Senha
+      <input type="password" autoComplete="current-password" value={accountPassword} onChange={e=>setAccountPassword(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'white'}}/>
+     </label>
+     {accountMessage&&<div style={{...small,color:accountMessage.includes('Não')||accountMessage.includes('Digite')||accountMessage.includes('Use um')?'#8c2727':'#40505f'}}>{accountMessage}</div>}
+     <div style={{display:'flex',gap:8}}>
+      <button type="button" style={{...primary,flex:1}} disabled={accountBusy} onClick={()=>void handleSignIn()}>{accountBusy?'Aguarde…':'Entrar'}</button>
+      <button type="button" style={{...button,flex:1}} disabled={accountBusy} onClick={()=>void handleSignUp()}>Criar conta</button>
+     </div>
+     <div style={small}>Ao criar uma conta, você poderá usar o mesmo e-mail e senha em outros aparelhos.</div>
+    </div>}
+   </div>
+  </div>}
 
   {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
    <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
