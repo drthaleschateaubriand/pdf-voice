@@ -111,6 +111,7 @@ export default function IpadReader(){
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const [selectedText,setSelectedText]=useState('');
  const [bookmarks,setBookmarks]=useState<number[]>([]);
+ const [highlightEnabled,setHighlightEnabled]=useState(true);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
@@ -124,11 +125,28 @@ export default function IpadReader(){
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
 
  useEffect(()=>{
+  try{
+   const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {speed?:number;highlightEnabled?:boolean};
+   if(typeof prefs.speed==='number'&&[0.75,1,1.25,1.5,1.75,2].includes(prefs.speed))setSpeed(prefs.speed);
+   if(typeof prefs.highlightEnabled==='boolean')setHighlightEnabled(prefs.highlightEnabled);
+  }catch{}
+ },[]);
+
+ function persistPreferences(next:{voice?:string;speed?:number;highlightEnabled?:boolean}){
+  try{
+   const current=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}');
+   localStorage.setItem('paper-voice-preferences',JSON.stringify({...current,...next}));
+  }catch{}
+ }
+
+ useEffect(()=>{
   fetch('/api/speech').then(r=>r.json()).then((d:{providers:Provider[]})=>{
    const o=d.providers?.find(p=>p.id==='openai');
    if(!o)return;
    setConnected(Boolean(o.configured));setVoices(o.voices||[]);
-   const preferred=o.voices?.find(v=>v.id==='marin')||o.voices?.[0];
+   let savedVoice='';
+   try{savedVoice=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}').voice||'';}catch{}
+   const preferred=o.voices?.find(v=>v.id===savedVoice)||o.voices?.find(v=>v.id==='marin')||o.voices?.[0];
    if(preferred)setVoice(preferred.id);
   }).catch(()=>setError('Não foi possível verificar a conexão com a voz OpenAI.'));
   return()=>{
@@ -147,7 +165,7 @@ export default function IpadReader(){
 
  function highlightRange(range:{start:number;end:number}|undefined){
   clearSpokenHighlight();
-  if(!range)return;
+  if(!highlightEnabled||!range)return;
   for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-speaking');
  }
 
@@ -483,6 +501,14 @@ export default function IpadReader(){
   if(target)void goPage(target);
  }
 
+ function toggleHighlight(){
+  const next=!highlightEnabled;
+  setHighlightEnabled(next);
+  persistPreferences({highlightEnabled:next});
+  if(!next)clearSpokenHighlight();
+  else if(mode==='playing')highlightSentence(indexRef.current);
+ }
+
  useEffect(()=>{
   if(!doc)return;
   let timer:number|undefined;
@@ -579,16 +605,17 @@ export default function IpadReader(){
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>Próxima página</button>
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:8}}>
-    <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);}} style={{...button,padding:'7px 9px',maxWidth:'32%'}}>
+    <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);persistPreferences({voice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'28%'}}>
      {voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
     </select>
     <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Desmarcar página':'Marcar página'}</button>
+    <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque ligado':'Destaque desligado'}</button>
     <select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'7px 9px',maxWidth:'25%'}}>
      <option value="">{bookmarks.length?'Marcadores ('+bookmarks.length+')':'Sem marcadores'}</option>
      {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
     </select>
     <span style={{...small,textAlign:'center',flex:1}}>{stage}{isAppleTouch()?' · Safari/iPad':''}</span>
-    <select aria-label="Velocidade" value={speed} onChange={e=>setSpeed(Number(e.target.value))} style={{...button,padding:'7px 9px'}}>
+    <select aria-label="Velocidade" value={speed} onChange={e=>{const next=Number(e.target.value);setSpeed(next);persistPreferences({speed:next});}} style={{...button,padding:'7px 9px'}}>
      {[0.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×</option>)}
     </select>
    </div>
@@ -623,6 +650,7 @@ export default function IpadReader(){
     <span style={{...small,whiteSpace:'nowrap'}}>/ {pages}</span>
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
