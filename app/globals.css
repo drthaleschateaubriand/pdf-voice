@@ -57,3 +57,5 @@ main{height:100dvh;display:flex;flex-direction:column;overflow:hidden}header{fle
 .ipad-text-layer{position:absolute;inset:0;z-index:2;overflow:hidden;line-height:1;text-align:initial;user-select:text;-webkit-user-select:text;touch-action:auto}
 .ipad-text-layer :is(span,br){color:transparent;position:absolute;white-space:pre;cursor:text;transform-origin:0 0;user-select:text;-webkit-user-select:text}
 .ipad-text-layer ::selection{background:rgba(61,123,255,.38);color:transparent}
+
+.ipad-text-layer .ipad-speaking{background:rgba(246,201,62,.42);border-radius:2px;box-shadow:0 0 0 1px rgba(191,143,18,.12);mix-blend-mode:multiply}
