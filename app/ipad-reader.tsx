@@ -112,6 +112,7 @@ export default function IpadReader(){
  const [selectedText,setSelectedText]=useState('');
  const [bookmarks,setBookmarks]=useState<number[]>([]);
  const [highlightEnabled,setHighlightEnabled]=useState(true);
+ const highlightEnabledRef=useRef(true);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
@@ -128,7 +129,7 @@ export default function IpadReader(){
   try{
    const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {speed?:number;highlightEnabled?:boolean};
    if(typeof prefs.speed==='number'&&[0.75,1,1.25,1.5,1.75,2].includes(prefs.speed))setSpeed(prefs.speed);
-   if(typeof prefs.highlightEnabled==='boolean')setHighlightEnabled(prefs.highlightEnabled);
+   if(typeof prefs.highlightEnabled==='boolean'){setHighlightEnabled(prefs.highlightEnabled);highlightEnabledRef.current=prefs.highlightEnabled;}
   }catch{}
  },[]);
 
@@ -165,7 +166,7 @@ export default function IpadReader(){
 
  function highlightRange(range:{start:number;end:number}|undefined){
   clearSpokenHighlight();
-  if(!highlightEnabled||!range)return;
+  if(!highlightEnabledRef.current||!range)return;
   for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-speaking');
  }
 
@@ -502,11 +503,12 @@ export default function IpadReader(){
  }
 
  function toggleHighlight(){
-  const next=!highlightEnabled;
+  const next=!highlightEnabledRef.current;
+  highlightEnabledRef.current=next;
   setHighlightEnabled(next);
   persistPreferences({highlightEnabled:next});
   if(!next)clearSpokenHighlight();
-  else if(mode==='playing')highlightSentence(indexRef.current);
+  else if(mode==='playing'||mode==='loading')highlightSentence(indexRef.current);
  }
 
  useEffect(()=>{
