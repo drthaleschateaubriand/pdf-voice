@@ -110,10 +110,11 @@ export default function IpadReader(){
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const [selectedText,setSelectedText]=useState('');
+ const [bookmarks,setBookmarks]=useState<number[]>([]);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
- const textItemsRef=useRef<PdfTextItem[]>([]),selectionStartRef=useRef({item:0,offset:0});
+ const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),fileKey=useRef('');
 
@@ -140,10 +141,21 @@ export default function IpadReader(){
   };
  },[]);
 
+ function clearSpokenHighlight(){
+  for(const span of textDivsRef.current)span.classList.remove('ipad-speaking');
+ }
+
+ function highlightSentence(i:number){
+  clearSpokenHighlight();
+  const range=sentenceRangesRef.current[i];
+  if(!range)return;
+  for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-speaking');
+ }
+
  function stop(reset=false){
   token.current++;playWanted.current=false;
   const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;}
-  setMode('idle');
+  setMode('idle');clearSpokenHighlight();
   if(reset){setIndex(0);indexRef.current=0;}
  }
 
@@ -214,13 +226,36 @@ export default function IpadReader(){
    textLayerTask.current=textTask;
    await textTask.promise;
    textDivs.forEach((span,i)=>span.dataset.item=String(i));
+   textDivsRef.current=textDivs;
   }
-  let text='';
-  for(const it of tc.items){
-   if(!it.str)continue;
+  let text='',normalized='',cursor=0;
+  const itemCharRanges:Array<{start:number;end:number}|null>=[];
+  for(let itemIndex=0;itemIndex<tc.items.length;itemIndex++){
+   const it=tc.items[itemIndex];
+   if(!it.str){itemCharRanges[itemIndex]=null;continue;}
    text+=it.str+(it.hasEOL?'\n':' ');
+   const part=it.str.replace(/\s+/g,' ').trim();
+   if(!part){itemCharRanges[itemIndex]=null;continue;}
+   if(normalized.length)normalized+=' ';
+   const start=normalized.length;
+   normalized+=part;
+   itemCharRanges[itemIndex]={start,end:normalized.length};
   }
   const list=splitSentences(text);
+  const mapped:Array<{start:number;end:number}>=[];
+  for(const sentence of list){
+   const startChar=normalized.indexOf(sentence,cursor);
+   const safeStart=startChar>=0?startChar:cursor;
+   const endChar=safeStart+sentence.length;
+   let first=-1,last=-1;
+   for(let itemIndex=0;itemIndex<itemCharRanges.length;itemIndex++){
+    const r=itemCharRanges[itemIndex];if(!r)continue;
+    if(r.end>safeStart&&r.start<endChar){if(first<0)first=itemIndex;last=itemIndex;}
+   }
+   mapped.push({start:Math.max(0,first),end:Math.max(Math.max(0,first),last)});
+   cursor=endChar;
+  }
+  sentenceRangesRef.current=mapped;
   const safeIndex=Math.max(0,Math.min(restoreIndex,Math.max(0,list.length-1)));
   pageRef.current=n;sentencesRef.current=list;indexRef.current=safeIndex;
   setPage(n);setJumpValue(String(n));setSentences(list);setIndex(safeIndex);
@@ -249,6 +284,10 @@ export default function IpadReader(){
    await docRef.current?.destroy();
    docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompactControls(true);setCompact(true);
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
+   try{
+    const savedMarks=JSON.parse(localStorage.getItem('paper-voice-bookmarks:'+fileKey.current)||'[]');
+    setBookmarks(Array.isArray(savedMarks)?savedMarks.filter((n:unknown)=>Number.isInteger(n)&&Number(n)>=1&&Number(n)<=next.numPages).map(Number).sort((a:number,b:number)=>a-b):[]);
+   }catch{setBookmarks([]);}
    let start=1,savedIndex=0;
    try{
     const saved=JSON.parse(localStorage.getItem('paper-voice-ios:'+fileKey.current)||'{}');
@@ -283,7 +322,7 @@ export default function IpadReader(){
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true){
   if(!playWanted.current||currentToken!==token.current)return;
   if(i>=list.length){
-   if(!continueDocument){playWanted.current=false;setMode('idle');setStage('Seleção concluída');return;}
+   if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
    const d=docRef.current,n=pageRef.current;
    if(d&&n<d.numPages){
     try{
@@ -294,11 +333,11 @@ export default function IpadReader(){
      stop();
     }
    }else{
-    playWanted.current=false;setMode('idle');setStage('Fim do documento');
+    playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Fim do documento');
    }
    return;
   }
-  if(trackIndex){indexRef.current=i;setIndex(i);}setMode('loading');setStage('Gerando voz…');
+  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else{clearSpokenHighlight();}setMode('loading');setStage('Gerando voz…');
   try{
    const current=audioUrl(list[i]);
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
@@ -386,6 +425,22 @@ export default function IpadReader(){
   const target=Number(jumpValue.replace(/[^0-9]/g,''));
   if(!target){setError('Digite o número da página.');return;}
   void goPage(target);
+ }
+
+ function saveBookmarks(next:number[]){
+  const sorted=[...new Set(next)].sort((a,b)=>a-b);
+  setBookmarks(sorted);
+  if(fileKey.current){try{localStorage.setItem('paper-voice-bookmarks:'+fileKey.current,JSON.stringify(sorted));}catch{}}
+ }
+
+ function toggleBookmark(){
+  if(!doc)return;
+  saveBookmarks(bookmarks.includes(page)?bookmarks.filter(n=>n!==page):[...bookmarks,page]);
+ }
+
+ function openBookmark(value:string){
+  const target=Number(value);
+  if(target)void goPage(target);
  }
 
  useEffect(()=>{
@@ -484,8 +539,13 @@ export default function IpadReader(){
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>Próxima página</button>
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:8}}>
-    <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);}} style={{...button,padding:'7px 9px',maxWidth:'45%'}}>
+    <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);}} style={{...button,padding:'7px 9px',maxWidth:'32%'}}>
      {voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+    </select>
+    <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Desmarcar página':'Marcar página'}</button>
+    <select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'7px 9px',maxWidth:'25%'}}>
+     <option value="">{bookmarks.length?'Marcadores ('+bookmarks.length+')':'Sem marcadores'}</option>
+     {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
     </select>
     <span style={{...small,textAlign:'center',flex:1}}>{stage}{isAppleTouch()?' · Safari/iPad':''}</span>
     <select aria-label="Velocidade" value={speed} onChange={e=>setSpeed(Number(e.target.value))} style={{...button,padding:'7px 9px'}}>
@@ -502,8 +562,13 @@ export default function IpadReader(){
   </div>}
 
   {compact&&doc&&compactControls&&<>
-   <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.72)',color:'white',borderRadius:16,padding:'5px 10px',fontSize:12}}>
-    Página {page} de {pages}
+   <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
+    <span style={{padding:'0 3px'}}>Página {page} de {pages}</span>
+    <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'5px 8px',fontSize:12}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Marcada':'Marcar'}</button>
+    {bookmarks.length>0&&<select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'5px 7px',fontSize:12,width:'auto',margin:0}}>
+     <option value="">Marcadores</option>
+     {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
+    </select>}
    </div>
    <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
