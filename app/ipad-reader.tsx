@@ -118,6 +118,7 @@ export default function IpadReader(){
  const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
  const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentPdfFileRef=useRef<File|null>(null);
+ const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
@@ -158,6 +159,19 @@ export default function IpadReader(){
     ...(typeof next.highlightEnabled==='boolean'?{highlight_enabled:next.highlightEnabled}:{})
    }).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
   }
+ }
+
+ function fingerprintForFile(file:File){
+  return (file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
+ }
+
+ function choosePdfForLibrary(book?:CloudLibraryBook){
+  cloudPickerModeRef.current=book?'attach':'add';
+  cloudPickerFingerprintRef.current=book?.fingerprint||'';
+  setLibraryOpen(false);
+  setError('');
+  setCloudStatus(book?'Selecione o PDF correspondente para completar este livro':'Selecione o PDF para adicionar à biblioteca');
+  window.setTimeout(()=>fileRef.current?.click(),0);
  }
 
  async function refreshCloudLibrary(){
@@ -730,7 +744,21 @@ export default function IpadReader(){
    <button style={button} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
    <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
    <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
-   <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{const f=e.target.files?.[0];if(f)void openFile(f);e.currentTarget.value='';}}/>
+   <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{
+    const picked=e.target.files?.[0];e.currentTarget.value='';if(!picked)return;
+    const mode=cloudPickerModeRef.current,target=cloudPickerFingerprintRef.current;
+    cloudPickerModeRef.current=null;cloudPickerFingerprintRef.current='';
+    if(mode==='attach'&&target&&fingerprintForFile(picked)!==target){
+     setError('Este não parece ser o mesmo PDF salvo na biblioteca. Selecione "'+(libraryBooks.find(b=>b.fingerprint===target)?.file_name||'o arquivo correspondente')+'".');
+     setLibraryOpen(true);return;
+    }
+    void (async()=>{
+     await openFile(picked);
+     if(mode&&cloudSessionRef.current){
+      await saveCurrentPdfToCloud();
+     }
+    })();
+   }}/>
   </header>}
 
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
@@ -848,7 +876,7 @@ export default function IpadReader(){
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:24}}>
      <div><div style={{fontFamily:'Georgia,serif',fontSize:36,fontWeight:700}}>Biblioteca</div><div style={{...small,marginTop:3}}>{cloudSession.user.email} · {libraryBooks.length} {libraryBooks.length===1?'livro':'livros'}</div></div>
      <div style={{display:'flex',gap:8}}>
-      <button type="button" style={button} onClick={()=>fileRef.current?.click()}>Adicionar PDF</button>
+      <button type="button" style={button} onClick={()=>choosePdfForLibrary()}>Adicionar PDF</button>
       <button type="button" style={button} onClick={()=>setLibraryOpen(false)}>Fechar</button>
      </div>
     </div>
@@ -859,20 +887,20 @@ export default function IpadReader(){
     </div>}
     {libraryBooks.length>0&&<>
      <div style={{fontFamily:'Georgia,serif',fontSize:24,fontWeight:700,margin:'4px 0 12px'}}>Continuar</div>
-     <button type="button" disabled={!libraryBooks[0].storage_path||libraryBusy} onClick={()=>void openLibraryBook(libraryBooks[0])} style={{...card,width:'100%',display:'flex',alignItems:'center',gap:16,textAlign:'left',marginBottom:26,cursor:'pointer'}}>
+     <button type="button" disabled={libraryBusy} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{...card,width:'100%',display:'flex',alignItems:'center',gap:16,textAlign:'left',marginBottom:26,cursor:'pointer'}}>
       <div style={{width:78,height:104,borderRadius:8,background:'#171717',color:'white',display:'grid',placeItems:'center',fontFamily:'Georgia,serif',fontSize:26,flex:'0 0 auto'}}>P</div>
       <div style={{minWidth:0,flex:1}}>
        <div style={{fontSize:21,fontWeight:750,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
-       <div style={{...small,marginTop:5}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'PDF na nuvem':'somente progresso'}</div>
+       <div style={{...small,marginTop:5}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'PDF na nuvem':'toque para enviar o PDF'}</div>
        <div style={{height:6,background:'#e1ddd4',borderRadius:99,marginTop:12,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#17202a'}}/></div>
       </div>
      </button>
      <div style={{fontFamily:'Georgia,serif',fontSize:24,fontWeight:700,margin:'0 0 12px'}}>Todos os livros</div>
      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:18}}>
-      {libraryBooks.map(book=><button key={book.id} type="button" disabled={!book.storage_path||libraryBusy} onClick={()=>void openLibraryBook(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#17202a',opacity:book.storage_path?1:.62}}>
+      {libraryBooks.map(book=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):choosePdfForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#17202a',opacity:1,cursor:'pointer'}}>
        <div style={{height:190,borderRadius:12,background:'linear-gradient(145deg,#1b1b1b,#3a3a3a)',boxShadow:'0 7px 18px rgba(0,0,0,.17)',display:'grid',placeItems:'center',color:'white',fontFamily:'Georgia,serif',fontSize:40}}>P</div>
        <div style={{fontWeight:720,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
-       <div style={{...small,marginTop:3}}>Pág. {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Envie o PDF'}</div>
+       <div style={{...small,marginTop:3}}>Pág. {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Toque para enviar o PDF'}</div>
       </button>)}
      </div>
     </>}
