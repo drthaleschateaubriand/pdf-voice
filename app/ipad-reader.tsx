@@ -1,5 +1,6 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
+import {clearPersistentAudioCache,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
 import {addCloudBookmark,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
@@ -191,6 +192,7 @@ export default function IpadReader(){
  const [highlightEnabled,setHighlightEnabled]=useState(true);
  const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
  const [accountOpen,setAccountOpen]=useState(false),[accountEmail,setAccountEmail]=useState(''),[accountPassword,setAccountPassword]=useState(''),[accountBusy,setAccountBusy]=useState(false),[accountMessage,setAccountMessage]=useState('');
+ const [audioCacheStats,setAudioCacheStats]=useState<AudioCacheStats>({entries:0,bytes:0});
  const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
  const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentPdfFileRef=useRef<File|null>(null);
@@ -206,6 +208,8 @@ export default function IpadReader(){
   const nav=navigator as Navigator & {standalone?:boolean};
   const standalone=window.matchMedia('(display-mode: standalone)').matches||nav.standalone===true;
   if(standalone)document.documentElement.classList.add('paper-voice-standalone');
+  void getPersistentAudioCacheStats().then(setAudioCacheStats).catch(()=>{});
+  try{void navigator.storage?.persist?.().catch(()=>false);}catch{}
   return()=>document.documentElement.classList.remove('paper-voice-standalone');
  },[]);
 
@@ -463,7 +467,21 @@ export default function IpadReader(){
   clearSpokenHighlight();
   setMode('idle');
   setError('');
-  setStage('Parado · cache de áudio limpo');
+  setStage('Parado · cache temporário limpo');
+ }
+
+ async function refreshAudioCacheStats(){
+  setAudioCacheStats(await getPersistentAudioCacheStats());
+ }
+
+ async function clearSavedAudioCache(){
+  const ok=typeof window==='undefined'||window.confirm('Apagar todo o áudio salvo neste aparelho? O Paper Voice poderá gerar esses trechos novamente quando necessário.');
+  if(!ok)return;
+  stopAndClearAudio();
+  await clearPersistentAudioCache();
+  setAudioCacheStats({entries:0,bytes:0});
+  setAccountMessage('Áudio salvo neste aparelho foi apagado.');
+  setStage('Cache de áudio salvo limpo');
  }
 
  const clearSelection=useCallback(()=>{
@@ -637,7 +655,21 @@ export default function IpadReader(){
  }
 
  async function audioUrl(text:string){
-  const key=voice+'|'+text;if(cache.current.has(key))return cache.current.get(key)!;
+  const key=voice+'|'+text;
+  if(cache.current.has(key))return cache.current.get(key)!;
+
+  const persistentKey=await makeAudioCacheKey(voice,text);
+  const saved=await getPersistentAudio(persistentKey);
+  if(saved){
+   const savedUrl=URL.createObjectURL(saved);
+   cache.current.set(key,savedUrl);
+   if(cache.current.size>80){
+    const first=cache.current.keys().next().value as string|undefined;
+    if(first&&first!==key){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
+   }
+   return savedUrl;
+  }
+
   const controller=new AbortController();audioRequests.current.add(controller);
   try{
    const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'openai',text,voice}),signal:controller.signal});
@@ -648,10 +680,14 @@ export default function IpadReader(){
    }
    const blob=await res.blob();
    if(controller.signal.aborted)throw new DOMException('Leitura interrompida','AbortError');
+
+   const stats=await putPersistentAudio(persistentKey,blob);
+   if(stats)setAudioCacheStats(stats);
+
    const url=URL.createObjectURL(blob);cache.current.set(key,url);
    if(cache.current.size>80){
     const first=cache.current.keys().next().value as string|undefined;
-    if(first){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
+    if(first&&first!==key){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
    }
    return url;
   }finally{
@@ -849,7 +885,7 @@ export default function IpadReader(){
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
-    <button style={button} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
+    <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
     <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
     <button style={primary} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    </nav>
@@ -893,7 +929,7 @@ export default function IpadReader(){
       <div style={{fontFamily:'cursive',fontSize:25,color:'#f36b21',marginTop:8,transform:'rotate(-1deg)'}}>Livros. Ideias. Você.</div>
       <p style={{fontSize:18,lineHeight:1.6,color:'#6f6b63',maxWidth:520,margin:'20px 0 22px'}}>Leia PDFs, ouça com voz natural, acompanhe seu progresso e mantenha sua biblioteca sincronizada entre seus aparelhos.</p>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-       <button type="button" style={{...primary,padding:'13px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?'Minha conta':'Começar agora'}</button>
+       <button type="button" style={{...primary,padding:'13px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?'Minha conta':'Começar agora'}</button>
        <button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>fileRef.current?.click()}>Abrir um PDF</button>
        {cloudSession&&<button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha biblioteca{libraryBooks.length?' · '+libraryBooks.length:''}</button>}
       </div>
@@ -1005,6 +1041,10 @@ export default function IpadReader(){
       <div style={{width:96,height:20,borderRadius:5,background:'#e8c69b',transform:'rotate(-1deg)'}}/>
      </div>
     </div>}
+    <div style={{borderTop:'1px solid #eadfce',padding:'14px 24px 18px',background:'#fbf5eb',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexWrap:'wrap'}}>
+     <div><div style={{fontWeight:800,fontSize:13}}>Áudio salvo neste aparelho</div><div style={small}>{audioCacheStats.entries?audioCacheStats.entries+' trechos · '+formatAudioCacheBytes(audioCacheStats.bytes):'Nenhum trecho salvo ainda'}</div></div>
+     <button type="button" style={{...button,padding:'7px 10px',fontSize:12}} disabled={!audioCacheStats.entries} onClick={()=>void clearSavedAudioCache()}>Limpar áudio salvo</button>
+    </div>
    </div>
   </div>}
 
