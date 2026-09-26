@@ -6,5 +6,6 @@ import {projectRoot} from './sites-env.mjs';
 const source=path.join(projectRoot,'node_modules','pdfjs-dist'),target=path.join(projectRoot,'public');
 fs.mkdirSync(target,{recursive:true});
 fs.copyFileSync(path.join(source,'build','pdf.worker.min.mjs'),path.join(target,'pdf.worker.min.mjs'));
+fs.copyFileSync(path.join(source,'legacy','build','pdf.worker.min.mjs'),path.join(target,'pdf.worker.legacy.min.mjs'));
 for(const name of ['cmaps','standard_fonts']){fs.rmSync(path.join(target,name),{recursive:true,force:true});fs.cpSync(path.join(source,name),path.join(target,name),{recursive:true});}
 console.log('PDF.js assets copied to public/.');
