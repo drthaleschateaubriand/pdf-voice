@@ -100,9 +100,11 @@ export default function IpadReader(){
   stop();setError('');setStage('Lendo arquivo…');setSentences([]);setIndex(0);
   let stageName='início';
   try{
-   stageName='carregar PDF.js';const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.legacy.min.mjs';
+   stageName='carregar PDF.js';const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');
+   const pdfjsAssets='https://cdn.jsdelivr.net/npm/pdfjs-dist@'+pdfjs.version+'/';
+   pdfjs.GlobalWorkerOptions.workerSrc=pdfjsAssets+'legacy/build/pdf.worker.min.mjs';
    stageName='ler arquivo';const bytes=await fileBytes(file);
-   stageName='abrir PDF';const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
+   stageName='abrir PDF';const next=await pdfjs.getDocument({data:bytes,cMapUrl:pdfjsAssets+'cmaps/',cMapPacked:true,standardFontDataUrl:pdfjsAssets+'standard_fonts/'}).promise;
    await docRef.current?.destroy();docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
    let start=1;try{const saved=JSON.parse(localStorage.getItem('paper-voice-ios:'+fileKey.current)||'{}');if(Number.isInteger(saved.page)&&saved.page>=1&&saved.page<=next.numPages)start=saved.page;}catch{}
