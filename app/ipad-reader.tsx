@@ -25,7 +25,7 @@ const PDFJS_VERSION='3.11.174';
 const PDFJS_BASE='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VERSION+'/';
 
 const shell:CSSProperties={minHeight:'100dvh',background:'#f3efe6',color:'#17202a',fontFamily:'system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',display:'flex',flexDirection:'column'};
-const top:CSSProperties={position:'sticky',top:0,zIndex:10,background:'#fffdf8',borderBottom:'1px solid #d8d0c2',padding:'10px 12px',display:'flex',alignItems:'center',gap:10};
+const top:CSSProperties={position:'sticky',top:0,zIndex:10,background:'#fffdf8',borderBottom:'1px solid #d8d0c2',padding:'calc(10px + env(safe-area-inset-top, 0px)) 12px 10px',paddingLeft:'calc(12px + env(safe-area-inset-left, 0px))',paddingRight:'calc(12px + env(safe-area-inset-right, 0px))',display:'flex',alignItems:'center',gap:10};
 const button:CSSProperties={border:'1px solid #cfc7b9',background:'#fffdf8',borderRadius:12,padding:'10px 13px',fontSize:15,color:'#17202a'};
 const primary:CSSProperties={...button,background:'#17202a',color:'#fffdf8',borderColor:'#17202a',fontWeight:600};
 const card:CSSProperties={background:'#fffdf8',border:'1px solid #d8d0c2',borderRadius:14,padding:12};
@@ -790,7 +790,7 @@ export default function IpadReader(){
   </div>}
 
   {compact&&doc&&compactControls&&<>
-   <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
+   <div style={{position:'fixed',top:'calc(8px + env(safe-area-inset-top, 0px))',left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
     <span style={{padding:'0 3px'}}>Página {page} de {pages}</span>
     <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'5px 8px',fontSize:12}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Marcada':'Marcar'}</button>
     {bookmarks.length>0&&<select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'5px 7px',fontSize:12,width:'auto',margin:0}}>
