@@ -1,6 +1,6 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
-import {clearPersistentAudioCache,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
+import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
 import {addCloudBookmark,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
@@ -654,12 +654,12 @@ export default function IpadReader(){
   }
  }
 
- async function audioUrl(text:string){
+ async function audioUrl(text:string,forceFresh=false){
   const key=voice+'|'+text;
-  if(cache.current.has(key))return cache.current.get(key)!;
+  if(!forceFresh&&cache.current.has(key))return cache.current.get(key)!;
 
   const persistentKey=await makeAudioCacheKey(voice,text);
-  const saved=await getPersistentAudio(persistentKey);
+  const saved=forceFresh?null:await getPersistentAudio(persistentKey);
   if(saved){
    const savedUrl=URL.createObjectURL(saved);
    cache.current.set(key,savedUrl);
@@ -695,6 +695,25 @@ export default function IpadReader(){
   }
  }
 
+ async function invalidateAudioForText(text:string){
+  const key=voice+'|'+text;
+  const currentUrl=cache.current.get(key);
+  if(currentUrl)URL.revokeObjectURL(currentUrl);
+  cache.current.delete(key);
+  const persistentKey=await makeAudioCacheKey(voice,text);
+  await deletePersistentAudio(persistentKey);
+  void refreshAudioCacheStats();
+ }
+
+ function prepareAudioElement(url:string){
+  let audio=audioRef.current;
+  if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
+  audio.pause();audio.onended=null;audio.onerror=null;
+  if(audio.src!==url)audio.src=url;
+  audio.playbackRate=speed;
+  return audio;
+ }
+
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
   if(!playWanted.current||currentToken!==token.current)return;
   if(i>=list.length){
@@ -719,12 +738,26 @@ export default function IpadReader(){
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
    const url=await current;
    if(!playWanted.current||currentToken!==token.current)return;
-   let audio=audioRef.current;
-   if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
-   audio.pause();audio.src=url;audio.playbackRate=speed;audio.currentTime=0;
+   let audio=prepareAudioElement(url);
    audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
    audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
-   await audio.play();
+   try{
+    await audio.play();
+   }catch(firstError){
+    if(currentToken!==token.current)return;
+    const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported/i.test(firstError.message));
+    if(!unsupported)throw firstError;
+    setStage('Recuperando áudio…');
+    await invalidateAudioForText(list[i]);
+    const freshUrl=await audioUrl(list[i],true);
+    if(currentToken!==token.current||!playWanted.current)return;
+    audioRef.current?.pause();
+    audioRef.current=null;
+    audio=prepareAudioElement(freshUrl);
+    audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
+    audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
+    await audio.play();
+   }
    if(currentToken===token.current){setMode('playing');setStage('Lendo');}
    if(fileKey.current){
     try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:pageRef.current,index:i}));}catch{}
@@ -768,7 +801,7 @@ export default function IpadReader(){
    const url=await audioUrl('Teste de voz do leitor. Tudo certo.');
    let a=audioRef.current;
    if(!a){a=new Audio();a.preload='auto';audioRef.current=a;}
-   a.pause();a.src=url;a.playbackRate=1;a.currentTime=0;
+   a.pause();a.onended=null;a.onerror=null;a.src=url;a.playbackRate=1;
    await a.play();setStage('Voz OpenAI funcionando');
   }catch(e){
    setError(e instanceof Error?e.message:'Falha no teste de voz.');
