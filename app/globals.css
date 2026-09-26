@@ -59,3 +59,13 @@ main{height:100dvh;display:flex;flex-direction:column;overflow:hidden}header{fle
 .ipad-text-layer ::selection{background:rgba(61,123,255,.38);color:transparent}
 
 .ipad-text-layer .ipad-speaking{background:rgba(246,201,62,.42);border-radius:2px;box-shadow:0 0 0 1px rgba(191,143,18,.12);mix-blend-mode:multiply}
+
+
+/* iPad Home Screen / PWA: keep controls below the system status bar even when
+   Safari reports a zero safe-area inset. */
+.paper-voice-standalone .paper-voice-topbar{
+  padding-top:max(36px,calc(10px + env(safe-area-inset-top,0px)))!important;
+}
+.paper-voice-standalone .paper-voice-compact-top{
+  top:max(36px,calc(8px + env(safe-area-inset-top,0px)))!important;
+}
