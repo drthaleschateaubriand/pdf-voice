@@ -4,7 +4,13 @@ import {useEffect,useRef,useState,type CSSProperties} from 'react';
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
 type PdfTextItem={str?:string;hasEOL?:boolean};
-type PdfPageLike={getTextContent:()=>Promise<{items:PdfTextItem[]}>};
+type PdfViewportLike={width:number;height:number};
+type PdfRenderTask={promise:Promise<void>;cancel:()=>void};
+type PdfPageLike={
+ getTextContent:()=>Promise<{items:PdfTextItem[]}>;
+ getViewport:(options:{scale:number})=>PdfViewportLike;
+ render:(options:{canvasContext:CanvasRenderingContext2D;viewport:PdfViewportLike;transform?:number[]})=>PdfRenderTask;
+};
 type PdfDocLike={numPages:number;getPage:(n:number)=>Promise<PdfPageLike>;destroy:()=>Promise<void>|void};
 type PdfJsClassic={
  version:string;
@@ -96,15 +102,14 @@ function loadClassicPdfJs(){
 export default function IpadReader(){
  const [doc,setDoc]=useState<PdfDocLike|null>(null);
  const [name,setName]=useState('Nenhum PDF aberto');
- const [pdfUrl,setPdfUrl]=useState('');
- const [page,setPage]=useState(1),[pages,setPages]=useState(0);
+ const [page,setPage]=useState(1),[pages,setPages]=useState(0),[jumpValue,setJumpValue]=useState('1');
  const [sentences,setSentences]=useState<string[]>([]),[index,setIndex]=useState(0);
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto');
- const fileRef=useRef<HTMLInputElement>(null);
+ const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
- const pdfUrlRef=useRef('');
+ const renderTask=useRef<PdfRenderTask|null>(null);
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),fileKey=useRef('');
 
@@ -124,8 +129,8 @@ export default function IpadReader(){
   return()=>{
    token.current++;
    audioRef.current?.pause();
+   renderTask.current?.cancel();
    void docRef.current?.destroy();
-   if(pdfUrlRef.current)URL.revokeObjectURL(pdfUrlRef.current);
    for(const url of cache.current.values())URL.revokeObjectURL(url);
   };
  },[]);
@@ -138,8 +143,29 @@ export default function IpadReader(){
  }
 
  async function extractPage(current:PdfDocLike,n:number,restoreIndex=0){
-  setStage('Extraindo texto da página '+n+'…');setError('');
+  setStage('Carregando página '+n+'…');setError('');
+  renderTask.current?.cancel();
   const pdfPage=await current.getPage(n);
+
+  const canvas=canvasRef.current;
+  if(!canvas)throw new Error('Área de visualização do PDF indisponível.');
+  const base=pdfPage.getViewport({scale:1});
+  const available=Math.max(280,(canvasWrap.current?.clientWidth||Math.min(window.innerWidth-24,900))-16);
+  const cssScale=available/base.width;
+  const viewport=pdfPage.getViewport({scale:cssScale});
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  canvas.width=Math.max(1,Math.floor(viewport.width*dpr));
+  canvas.height=Math.max(1,Math.floor(viewport.height*dpr));
+  canvas.style.width=Math.floor(viewport.width)+'px';
+  canvas.style.height=Math.floor(viewport.height)+'px';
+  const context=canvas.getContext('2d');
+  if(!context)throw new Error('Canvas indisponível.');
+  context.setTransform(1,0,0,1,0,0);
+  context.clearRect(0,0,canvas.width,canvas.height);
+  const task=pdfPage.render({canvasContext:context,viewport,transform:dpr===1?undefined:[dpr,0,0,dpr,0,0]});
+  renderTask.current=task;
+  await task.promise;
+
   const tc=await pdfPage.getTextContent();
   let text='';
   for(const it of tc.items){
@@ -149,7 +175,7 @@ export default function IpadReader(){
   const list=splitSentences(text);
   const safeIndex=Math.max(0,Math.min(restoreIndex,Math.max(0,list.length-1)));
   pageRef.current=n;sentencesRef.current=list;indexRef.current=safeIndex;
-  setPage(n);setSentences(list);setIndex(safeIndex);
+  setPage(n);setJumpValue(String(n));setSentences(list);setIndex(safeIndex);
   setStage(list.length?'Página pronta para leitura':'Página sem texto selecionável');
   if(fileKey.current){
    try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:n,index:safeIndex}));}catch{}
@@ -160,7 +186,6 @@ export default function IpadReader(){
  async function openFile(file:File){
   stop();setError('');setStage('Preparando PDF…');setSentences([]);setIndex(0);
   let stageName='início';
-  const nextUrl=URL.createObjectURL(file);
   try{
    stageName='carregar PDF.js clássico';
    const pdfjs=await loadClassicPdfJs();
@@ -174,8 +199,6 @@ export default function IpadReader(){
     standardFontDataUrl:PDFJS_BASE+'standard_fonts/'
    }).promise;
    await docRef.current?.destroy();
-   if(pdfUrlRef.current)URL.revokeObjectURL(pdfUrlRef.current);
-   pdfUrlRef.current=nextUrl;setPdfUrl(nextUrl);
    docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
    let start=1,savedIndex=0;
@@ -187,7 +210,6 @@ export default function IpadReader(){
    stageName='extrair texto';
    await extractPage(next,start,savedIndex);
   }catch(e){
-   URL.revokeObjectURL(nextUrl);
    setError('Falha ao abrir o PDF em "'+stageName+'": '+(e instanceof Error?e.message:String(e)));
    setStage('Falha');
   }
@@ -279,9 +301,17 @@ export default function IpadReader(){
  }
 
  async function goPage(n:number){
-  const d=docRef.current;if(!d||n<1||n>d.numPages)return;
+  const d=docRef.current;if(!d)return;
+  const target=Math.trunc(n);
+  if(!Number.isFinite(target)||target<1||target>d.numPages){setError('Digite uma página entre 1 e '+d.numPages+'.');return;}
   stop();
-  try{await extractPage(d,n);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar página.');}
+  try{await extractPage(d,target);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar página.');}
+ }
+
+ function jumpToPage(){
+  const target=Number(jumpValue.replace(/[^0-9]/g,''));
+  if(!target){setError('Digite o número da página.');return;}
+  void goPage(target);
  }
 
  function moveSentence(delta:number){
@@ -293,7 +323,6 @@ export default function IpadReader(){
  }
 
  const active=sentences[index]||'';
- const nativeSrc=pdfUrl?pdfUrl+'#page='+page+'&view=FitH':'';
 
  return <main style={shell}>
   <header style={top}>
@@ -308,16 +337,12 @@ export default function IpadReader(){
 
   <section style={{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
-   <div style={{...card,padding:8,minHeight:'58dvh',overflow:'hidden'}}>
-    {pdfUrl?
-     <iframe
-      title="PDF original"
-      src={nativeSrc}
-      style={{display:'block',width:'100%',height:'68dvh',border:0,background:'white',borderRadius:8}}
-     />:
+   <div ref={canvasWrap} style={{...card,padding:8,minHeight:'58dvh',overflow:'auto'}}>
+    {doc?
+     <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:'block',margin:'0 auto',background:'white',maxWidth:'100%',height:'auto',borderRadius:8}}/>:
      <div style={{padding:'48px 18px',textAlign:'center'}}>
       <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
-      <p style={{margin:0,color:'#657080'}}>O Safari mostra o PDF original. O texto é extraído separadamente para a voz da OpenAI.</p>
+      <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
      </div>}
    </div>
    {doc&&<div style={{...card,background:'#fff7dc'}}>
@@ -327,6 +352,20 @@ export default function IpadReader(){
   </section>
 
   <footer style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
+   <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:8}}>
+    <span style={{...small,fontWeight:600}}>Ir para página</span>
+    <input
+     aria-label="Número da página"
+     inputMode="numeric"
+     pattern="[0-9]*"
+     value={jumpValue}
+     onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}
+     disabled={!doc}
+     style={{...button,padding:'7px 9px',width:92,textAlign:'center'}}
+    />
+    <span style={small}>{pages?'de '+pages:''}</span>
+    <button type="submit" style={{...button,padding:'7px 12px'}} disabled={!doc}>Ir</button>
+   </form>
    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,flexWrap:'wrap'}}>
     <button style={button} disabled={!doc||page<=1} onClick={()=>void goPage(page-1)}>Página anterior</button>
     <button style={button} disabled={!sentences.length||index<=0} onClick={()=>moveSentence(-1)}>Trecho anterior</button>
