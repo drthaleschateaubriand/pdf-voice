@@ -338,12 +338,11 @@ export default function IpadReader(){
   <section style={{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
    <div ref={canvasWrap} style={{...card,padding:8,minHeight:'58dvh',overflow:'auto'}}>
-    {doc?
-     <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:'block',margin:'0 auto',background:'white',maxWidth:'100%',height:'auto',borderRadius:8}}/>:
-     <div style={{padding:'48px 18px',textAlign:'center'}}>
-      <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
-      <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
-     </div>}
+    <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',height:'auto',borderRadius:8}}/>
+    {!doc&&<div style={{padding:'48px 18px',textAlign:'center'}}>
+     <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
+     <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
+    </div>}
    </div>
    {doc&&<div style={{...card,background:'#fff7dc'}}>
     <div style={{...small,marginBottom:5}}>TRECHO ATUAL {sentences.length?index+1:0}/{sentences.length}</div>
