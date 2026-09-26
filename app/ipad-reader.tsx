@@ -106,7 +106,7 @@ export default function IpadReader(){
  const [sentences,setSentences]=useState<string[]>([]),[index,setIndex]=useState(0);
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
- const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false);
+ const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null);
@@ -201,7 +201,7 @@ export default function IpadReader(){
     standardFontDataUrl:PDFJS_BASE+'standard_fonts/'
    }).promise;
    await docRef.current?.destroy();
-   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompact(true);
+   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompactControls(true);setCompact(true);
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
    let start=1,savedIndex=0;
    try{
@@ -347,7 +347,7 @@ export default function IpadReader(){
     <div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div>
     <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'}</div>
    </div>
-   {doc&&<button style={button} onClick={()=>setCompact(true)}>Modo leitura</button>}
+   {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
    <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
    <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{const f=e.target.files?.[0];if(f)void openFile(f);e.currentTarget.value='';}}/>
@@ -356,7 +356,7 @@ export default function IpadReader(){
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
    <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
-    <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',maxHeight:'100%',height:'auto'}}/>
+    <canvas ref={canvasRef} onClick={()=>{if(compact)setCompactControls(v=>!v);}} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',maxHeight:'100%',height:'auto'}}/>
     {!doc&&<div style={{padding:'48px 18px',textAlign:'center'}}>
      <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
      <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
@@ -401,7 +401,7 @@ export default function IpadReader(){
    </div>
   </footer>}
 
-  {compact&&doc&&<>
+  {compact&&doc&&compactControls&&<>
    <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.72)',color:'white',borderRadius:16,padding:'5px 10px',fontSize:12}}>
     Página {page} de {pages}
    </div>
@@ -419,6 +419,7 @@ export default function IpadReader(){
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
    </form>
   </>}
