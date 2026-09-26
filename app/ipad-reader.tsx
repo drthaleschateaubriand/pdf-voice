@@ -124,6 +124,13 @@ export default function IpadReader(){
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),fileKey=useRef('');
 
+ useEffect(()=>{
+  const nav=navigator as Navigator & {standalone?:boolean};
+  const standalone=window.matchMedia('(display-mode: standalone)').matches||nav.standalone===true;
+  if(standalone)document.documentElement.classList.add('paper-voice-standalone');
+  return()=>document.documentElement.classList.remove('paper-voice-standalone');
+ },[]);
+
  useEffect(()=>{pageRef.current=page;},[page]);
  useEffect(()=>{sentencesRef.current=sentences;},[sentences]);
  useEffect(()=>{indexRef.current=index;},[index]);
@@ -674,7 +681,7 @@ export default function IpadReader(){
  const active=sentences[index]||'';
 
  return <main style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
-  {(!compact||!doc)&&<header style={top}>
+  {(!compact||!doc)&&<header className="paper-voice-topbar" style={top}>
    <div style={{minWidth:0,flex:1}}>
     <div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div>
     <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'} · {cloudStatus}</div>
@@ -790,7 +797,7 @@ export default function IpadReader(){
   </div>}
 
   {compact&&doc&&compactControls&&<>
-   <div style={{position:'fixed',top:'calc(8px + env(safe-area-inset-top, 0px))',left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
+   <div className="paper-voice-compact-top" style={{position:'fixed',top:'calc(8px + env(safe-area-inset-top, 0px))',left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
     <span style={{padding:'0 3px'}}>Página {page} de {pages}</span>
     <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'5px 8px',fontSize:12}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Marcada':'Marcar'}</button>
     {bookmarks.length>0&&<select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'5px 7px',fontSize:12,width:'auto',margin:0}}>
