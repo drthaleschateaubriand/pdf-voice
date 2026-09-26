@@ -201,7 +201,7 @@ export default function IpadReader(){
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
- const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
+ const audioRef=useRef<HTMLAudioElement|null>(null),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
 
  useEffect(()=>{
@@ -463,7 +463,7 @@ export default function IpadReader(){
    try{a.load();}catch{}
   }
   for(const url of cache.current.values())URL.revokeObjectURL(url);
-  cache.current.clear();
+  cache.current.clear();activeAudioUrlRef.current='';
   clearSpokenHighlight();
   setMode('idle');
   setError('');
@@ -654,6 +654,23 @@ export default function IpadReader(){
   }
  }
 
+ function trimTemporaryAudioCache(){
+  if(cache.current.size<=80)return;
+  for(const [key,url] of cache.current){
+   if(cache.current.size<=64)break;
+   if(url===activeAudioUrlRef.current)continue;
+   URL.revokeObjectURL(url);
+   cache.current.delete(key);
+  }
+ }
+
+ function rememberTemporaryAudio(key:string,url:string){
+  const previous=cache.current.get(key);
+  if(previous&&previous!==url&&previous!==activeAudioUrlRef.current)URL.revokeObjectURL(previous);
+  cache.current.set(key,url);
+  trimTemporaryAudioCache();
+ }
+
  async function audioUrl(text:string,forceFresh=false){
   const key=voice+'|'+text;
   if(!forceFresh&&cache.current.has(key))return cache.current.get(key)!;
@@ -661,13 +678,13 @@ export default function IpadReader(){
   const persistentKey=await makeAudioCacheKey(voice,text);
   const saved=forceFresh?null:await getPersistentAudio(persistentKey);
   if(saved){
-   const savedUrl=URL.createObjectURL(saved);
-   cache.current.set(key,savedUrl);
-   if(cache.current.size>80){
-    const first=cache.current.keys().next().value as string|undefined;
-    if(first&&first!==key){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
+   if(saved.size<512){
+    await deletePersistentAudio(persistentKey);
+   }else{
+    const savedUrl=URL.createObjectURL(saved);
+    rememberTemporaryAudio(key,savedUrl);
+    return savedUrl;
    }
-   return savedUrl;
   }
 
   const controller=new AbortController();audioRequests.current.add(controller);
@@ -680,15 +697,13 @@ export default function IpadReader(){
    }
    const blob=await res.blob();
    if(controller.signal.aborted)throw new DOMException('Leitura interrompida','AbortError');
+   if(blob.size<512)throw new Error('A geração de voz retornou um áudio inválido.');
 
    const stats=await putPersistentAudio(persistentKey,blob);
    if(stats)setAudioCacheStats(stats);
 
-   const url=URL.createObjectURL(blob);cache.current.set(key,url);
-   if(cache.current.size>80){
-    const first=cache.current.keys().next().value as string|undefined;
-    if(first&&first!==key){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
-   }
+   const url=URL.createObjectURL(blob);
+   rememberTemporaryAudio(key,url);
    return url;
   }finally{
    audioRequests.current.delete(controller);
@@ -709,6 +724,7 @@ export default function IpadReader(){
   let audio=audioRef.current;
   if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
   audio.pause();audio.onended=null;audio.onerror=null;
+  activeAudioUrlRef.current=url;
   if(audio.src!==url)audio.src=url;
   audio.playbackRate=speed;
   return audio;
@@ -739,24 +755,38 @@ export default function IpadReader(){
    const url=await current;
    if(!playWanted.current||currentToken!==token.current)return;
    let audio=prepareAudioElement(url);
-   audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
-   audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
+   let recovering=false;
+   const onEnded=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
+   const recoverPlayback=async()=>{
+    if(recovering||currentToken!==token.current||!playWanted.current)return;
+    recovering=true;
+    setStage('Recuperando áudio…');
+    try{
+     await invalidateAudioForText(list[i]);
+     const freshUrl=await audioUrl(list[i],true);
+     if(currentToken!==token.current||!playWanted.current)return;
+     audioRef.current?.pause();
+     audioRef.current=null;
+     audio=prepareAudioElement(freshUrl);
+     audio.onended=onEnded;
+     audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho mesmo após recuperar o áudio.');stop();};
+     await audio.play();
+     if(currentToken===token.current){setMode('playing');setStage('Lendo');}
+    }catch(recoveryError){
+     if(currentToken!==token.current)return;
+     setError(recoveryError instanceof Error?recoveryError.message:'Falha ao recuperar o áudio.');
+     stop();
+    }
+   };
+   audio.onended=onEnded;
+   audio.onerror=()=>{void recoverPlayback();};
    try{
     await audio.play();
    }catch(firstError){
     if(currentToken!==token.current)return;
     const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported/i.test(firstError.message));
     if(!unsupported)throw firstError;
-    setStage('Recuperando áudio…');
-    await invalidateAudioForText(list[i]);
-    const freshUrl=await audioUrl(list[i],true);
-    if(currentToken!==token.current||!playWanted.current)return;
-    audioRef.current?.pause();
-    audioRef.current=null;
-    audio=prepareAudioElement(freshUrl);
-    audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
-    audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
-    await audio.play();
+    await recoverPlayback();
    }
    if(currentToken===token.current){setMode('playing');setStage('Lendo');}
    if(fileKey.current){
