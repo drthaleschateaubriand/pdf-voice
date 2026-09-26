@@ -8,7 +8,7 @@ export const metadata: Metadata = {
  appleWebApp:{
   capable:true,
   title:'Paper Voice',
-  statusBarStyle:'black-translucent'
+  statusBarStyle:'default'
  }
 };
 
