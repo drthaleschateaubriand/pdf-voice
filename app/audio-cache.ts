@@ -127,6 +127,16 @@ export async function getPersistentAudioCacheStats():Promise<AudioCacheStats>{
  }
 }
 
+export async function deletePersistentAudio(key:string){
+ try{
+  const db=await openDb();
+  const tx=db.transaction(STORE,'readwrite');
+  tx.objectStore(STORE).delete(key);
+  await txDone(tx);
+  db.close();
+ }catch{}
+}
+
 export async function clearPersistentAudioCache(){
  try{
   const db=await openDb();
