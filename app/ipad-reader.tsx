@@ -135,6 +135,15 @@ export default function IpadReader(){
    if(fileKey.current){try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:pageRef.current,index:i}));}catch{}}
   }catch(e){setError(e instanceof Error?e.message:'Falha na narração.');stop();}
  }
+ async function testVoice(){
+  setError('');setStage('Testando voz…');
+  try{
+   const url=await audioUrl('Teste de voz do leitor. Tudo certo.');
+   let a=audioRef.current;if(!a){a=new Audio();a.preload='auto';audioRef.current=a;}
+   a.pause();a.src=url;a.playbackRate=1;a.currentTime=0;
+   await a.play();setStage('Voz OpenAI funcionando');
+  }catch(e){setError(e instanceof Error?e.message:'Falha no teste de voz.');setStage('Falha no teste de voz');}
+ }
  function toggle(){
   const a=audioRef.current;
   if(mode==='playing'){playWanted.current=false;a?.pause();setMode('paused');setStage('Pausado');return;}
@@ -155,6 +164,7 @@ export default function IpadReader(){
  return <main style={shell}>
   <header style={top}>
    <div style={{minWidth:0,flex:1}}><div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div><div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'}</div></div>
+   <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
    <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{const f=e.target.files?.[0];if(f)void openFile(f);e.currentTarget.value='';}}/>
   </header>
