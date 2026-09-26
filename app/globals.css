@@ -69,3 +69,37 @@ main{height:100dvh;display:flex;flex-direction:column;overflow:hidden}header{fle
 .paper-voice-standalone .paper-voice-compact-top{
   top:max(36px,calc(8px + env(safe-area-inset-top,0px)))!important;
 }
+
+
+/* Paper Voice v1.6 visual system */
+.pv-welcome{display:grid;grid-template-columns:minmax(300px,.9fr) minmax(420px,1.1fr);gap:22px;align-items:stretch}
+.pv-welcome-art{background:#f4e4cf}
+.pv-welcome-copy{background:radial-gradient(circle at 85% 12%,rgba(243,107,33,.08),transparent 28%)}
+.pv-top-actions button,.pv-library-screen button,.pv-account-card button{transition:transform .16s ease,box-shadow .16s ease,background .16s ease}
+.pv-top-actions button:active,.pv-library-screen button:active,.pv-account-card button:active{transform:translateY(1px)}
+.pv-library-screen{background:
+ radial-gradient(circle at 92% 4%,rgba(243,107,33,.08),transparent 24%),
+ linear-gradient(180deg,#fffaf2 0%,#f8f1e7 100%)!important}
+.pv-library-header{position:sticky;top:0;z-index:2;padding:8px 0 12px;background:linear-gradient(180deg,rgba(255,250,242,.98),rgba(255,250,242,.88),transparent);backdrop-filter:blur(10px)}
+.pv-library-tabs>span{white-space:nowrap}
+.pv-book-grid button:hover{transform:translateY(-2px)}
+.pv-account-card input:focus{outline:2px solid rgba(243,107,33,.24);border-color:#f36b21}
+.paper-voice-topbar{box-shadow:0 8px 22px rgba(72,48,23,.05)}
+.paper-voice-compact-top{background:rgba(23,61,49,.92)!important}
+.ipad-text-layer .ipad-speaking{background:rgba(242,176,77,.42)}
+
+@media(max-width:900px){
+ .pv-welcome{grid-template-columns:1fr}
+ .pv-welcome-art{min-height:420px!important;max-height:520px}
+ .pv-welcome-copy{padding:20px 8px 6px!important}
+ .pv-welcome-copy>div:nth-child(2){font-size:38px!important}
+ .paper-voice-topbar{align-items:flex-start!important}
+ .pv-top-actions{flex:1 1 100%;justify-content:flex-start!important}
+}
+@media(max-width:620px){
+ .pv-welcome{padding:10px!important;gap:10px}
+ .pv-welcome-art{min-height:360px!important}
+ .pv-welcome-copy>div:nth-child(2){font-size:32px!important}
+ .pv-book-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .pv-library-screen{padding-left:12px!important;padding-right:12px!important}
+}
