@@ -1,11 +1,12 @@
 "use client";
-import {useEffect,useRef,useState,type CSSProperties} from 'react';
+import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
 type PdfTextItem={str?:string;hasEOL?:boolean};
 type PdfViewportLike={width:number;height:number};
 type PdfRenderTask={promise:Promise<void>;cancel:()=>void};
+type PdfTextLayerTask={promise:Promise<void>;cancel?:()=>void};
 type PdfPageLike={
  getTextContent:()=>Promise<{items:PdfTextItem[]}>;
  getViewport:(options:{scale:number})=>PdfViewportLike;
@@ -16,6 +17,7 @@ type PdfJsClassic={
  version:string;
  GlobalWorkerOptions:{workerSrc:string};
  getDocument:(options:{data:Uint8Array;cMapUrl?:string;cMapPacked?:boolean;standardFontDataUrl?:string})=>{promise:Promise<PdfDocLike>};
+ renderTextLayer:(options:{textContentSource:{items:PdfTextItem[]};container:HTMLElement;viewport:PdfViewportLike;textDivs?:HTMLElement[];textContentItemsStr?:string[]})=>PdfTextLayerTask;
 };
 
 const PDFJS_VERSION='3.11.174';
@@ -107,9 +109,11 @@ export default function IpadReader(){
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
- const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null);
+ const [selectedText,setSelectedText]=useState('');
+ const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
- const renderTask=useRef<PdfRenderTask|null>(null);
+ const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
+ const textItemsRef=useRef<PdfTextItem[]>([]),selectionStartRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
  const cache=useRef(new Map<string,string>()),fileKey=useRef('');
 
@@ -130,6 +134,7 @@ export default function IpadReader(){
    token.current++;
    audioRef.current?.pause();
    renderTask.current?.cancel();
+   textLayerTask.current?.cancel?.();
    void docRef.current?.destroy();
    for(const url of cache.current.values())URL.revokeObjectURL(url);
   };
@@ -142,9 +147,33 @@ export default function IpadReader(){
   if(reset){setIndex(0);indexRef.current=0;}
  }
 
+ const clearSelection=useCallback(()=>{
+  setSelectedText('');
+  selectionStartRef.current={item:0,offset:0};
+  try{window.getSelection()?.removeAllRanges();}catch{}
+ },[]);
+
+ const captureSelection=useCallback(()=>{
+  const layer=textLayerRef.current,selection=window.getSelection();
+  if(!layer||!selection||selection.rangeCount===0||selection.isCollapsed){setSelectedText('');return;}
+  const range=selection.getRangeAt(0);
+  if(!layer.contains(range.commonAncestorContainer)){return;}
+  const text=selection.toString().replace(/\s+/g,' ').trim();
+  if(!text){setSelectedText('');return;}
+  const rawStart=range.startContainer;
+  const startElement=(rawStart.nodeType===Node.ELEMENT_NODE?rawStart as Element:rawStart.parentElement)?.closest<HTMLElement>('[data-item]');
+  const itemNumber=Number(startElement?.dataset.item||0);
+  const offset=rawStart.nodeType===Node.TEXT_NODE?range.startOffset:0;
+  selectionStartRef.current={item:Number.isFinite(itemNumber)?itemNumber:0,offset:Math.max(0,offset)};
+  setSelectedText(text);
+  setCompactControls(true);
+ },[]);
+
  async function extractPage(current:PdfDocLike,n:number,restoreIndex=0){
   setStage('Carregando página '+n+'…');setError('');
   renderTask.current?.cancel();
+  textLayerTask.current?.cancel?.();
+  clearSelection();
   const pdfPage=await current.getPage(n);
 
   const canvas=canvasRef.current;
@@ -160,6 +189,8 @@ export default function IpadReader(){
   canvas.height=Math.max(1,Math.floor(viewport.height*dpr));
   canvas.style.width=Math.floor(viewport.width)+'px';
   canvas.style.height=Math.floor(viewport.height)+'px';
+  const stage=pageStageRef.current;
+  if(stage){stage.style.width=Math.floor(viewport.width)+'px';stage.style.height=Math.floor(viewport.height)+'px';}
   const context=canvas.getContext('2d');
   if(!context)throw new Error('Canvas indisponível.');
   context.setTransform(1,0,0,1,0,0);
@@ -169,6 +200,21 @@ export default function IpadReader(){
   await task.promise;
 
   const tc=await pdfPage.getTextContent();
+  textItemsRef.current=tc.items;
+  const layer=textLayerRef.current;
+  if(layer){
+   layer.replaceChildren();
+   layer.style.width=Math.floor(viewport.width)+'px';
+   layer.style.height=Math.floor(viewport.height)+'px';
+   layer.style.setProperty('--scale-factor',String(viewport.width/base.width));
+   layer.style.setProperty('--total-scale-factor',String(viewport.width/base.width));
+   const textDivs:HTMLElement[]=[];
+   const pdfjs=await loadClassicPdfJs();
+   const textTask=pdfjs.renderTextLayer({textContentSource:tc,container:layer,viewport,textDivs,textContentItemsStr:[]});
+   textLayerTask.current=textTask;
+   await textTask.promise;
+   textDivs.forEach((span,i)=>span.dataset.item=String(i));
+  }
   let text='';
   for(const it of tc.items){
    if(!it.str)continue;
@@ -234,14 +280,15 @@ export default function IpadReader(){
   return url;
  }
 
- async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current){
+ async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true){
   if(!playWanted.current||currentToken!==token.current)return;
   if(i>=list.length){
+   if(!continueDocument){playWanted.current=false;setMode('idle');setStage('Seleção concluída');return;}
    const d=docRef.current,n=pageRef.current;
    if(d&&n<d.numPages){
     try{
      const next=await extractPage(d,n+1);
-     if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken);
+     if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,trackIndex);
     }catch(e){
      setError(e instanceof Error?e.message:'Falha ao avançar página.');
      stop();
@@ -251,7 +298,7 @@ export default function IpadReader(){
    }
    return;
   }
-  indexRef.current=i;setIndex(i);setMode('loading');setStage('Gerando voz…');
+  if(trackIndex){indexRef.current=i;setIndex(i);}setMode('loading');setStage('Gerando voz…');
   try{
    const current=audioUrl(list[i]);
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
@@ -260,7 +307,7 @@ export default function IpadReader(){
    let audio=audioRef.current;
    if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
    audio.pause();audio.src=url;audio.playbackRate=speed;audio.currentTime=0;
-   audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken);};
+   audio.onended=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex);};
    audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho.');stop();};
    await audio.play();
    if(currentToken===token.current){setMode('playing');setStage('Lendo');}
@@ -271,6 +318,30 @@ export default function IpadReader(){
    setError(e instanceof Error?e.message:'Falha na narração.');
    stop();
   }
+ }
+
+ function readSelectionOnly(){
+  const text=selectedText.trim();if(!text)return;
+  const list=splitSentences(text);if(!list.length)return;
+  stop();playWanted.current=true;setStage('Lendo seleção');
+  const currentToken=++token.current;
+  void playAt(0,list,currentToken,false,false);
+ }
+
+ function readFromSelection(){
+  const items=textItemsRef.current,{item,offset}=selectionStartRef.current;
+  if(!items.length)return;
+  let text='';
+  for(let i=Math.max(0,item);i<items.length;i++){
+   const it=items[i];let part=it.str||'';
+   if(i===item&&offset>0)part=part.slice(Math.min(offset,part.length));
+   if(!part)continue;
+   text+=part+(it.hasEOL?'\n':' ');
+  }
+  const list=splitSentences(text);if(!list.length)return;
+  stop();playWanted.current=true;setStage('Lendo a partir da seleção');
+  const currentToken=++token.current;
+  void playAt(0,list,currentToken,true,false);
  }
 
  async function testVoice(){
@@ -331,6 +402,19 @@ export default function IpadReader(){
   return()=>{if(timer)window.clearTimeout(timer);window.removeEventListener('resize',rerender);};
  },[doc,compact]);
 
+ useEffect(()=>{
+  if(!doc)return;
+  let timer:number|undefined;
+  const onSelectionChange=()=>{
+   if(timer)window.clearTimeout(timer);
+   timer=window.setTimeout(captureSelection,120);
+  };
+  document.addEventListener('selectionchange',onSelectionChange);
+  return()=>{if(timer)window.clearTimeout(timer);document.removeEventListener('selectionchange',onSelectionChange);};
+ },[doc,page,captureSelection]);
+
+
+
  function moveSentence(delta:number){
   const list=sentencesRef.current;if(!list.length)return;
   const next=Math.max(0,Math.min(list.length-1,indexRef.current+delta));
@@ -356,7 +440,16 @@ export default function IpadReader(){
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
    <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
-    <canvas ref={canvasRef} onClick={()=>{if(compact)setCompactControls(v=>!v);}} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',maxHeight:'100%',height:'auto'}}/>
+    <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
+     <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
+     <div
+      ref={textLayerRef}
+      className="textLayer ipad-text-layer"
+      onPointerUp={()=>window.setTimeout(captureSelection,0)}
+      onTouchEnd={()=>window.setTimeout(captureSelection,0)}
+      onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
+     />
+    </div>
     {!doc&&<div style={{padding:'48px 18px',textAlign:'center'}}>
      <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
      <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
@@ -400,6 +493,13 @@ export default function IpadReader(){
     </select>
    </div>
   </footer>}
+
+  {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
+   <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
+   <button type="button" onPointerDown={e=>e.preventDefault()} style={{...primary,padding:'7px 10px'}} onClick={readSelectionOnly}>Ler seleção</button>
+   <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'7px 10px'}} onClick={readFromSelection}>Ler daqui</button>
+   <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'7px 9px'}} onClick={clearSelection}>Fechar</button>
+  </div>}
 
   {compact&&doc&&compactControls&&<>
    <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.72)',color:'white',borderRadius:16,padding:'5px 10px',fontSize:12}}>
