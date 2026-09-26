@@ -20,8 +20,22 @@ export type CloudPreferences={
 
 export type CloudBookState={
  bookId:string;
+ storagePath?:string|null;
  progress:{page:number;sentence_index:number;updated_at?:string}|null;
  bookmarks:number[];
+};
+
+export type CloudLibraryBook={
+ id:string;
+ fingerprint:string;
+ file_name:string;
+ file_size:number;
+ title:string|null;
+ total_pages:number;
+ storage_path:string|null;
+ updated_at:string;
+ page:number;
+ sentence_index:number;
 };
 
 function headers(token?:string,extra?:HeadersInit){
@@ -139,13 +153,13 @@ export async function saveCloudPreferences(prefs:CloudPreferences){
 export async function openCloudBook(input:{fingerprint:string;fileName:string;fileSize:number;totalPages:number}):Promise<CloudBookState>{
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
  const bookBody={user_id:session.user.id,fingerprint:input.fingerprint,file_name:input.fileName,file_size:input.fileSize,title:input.fileName.replace(/\.pdf$/i,''),total_pages:input.totalPages};
- const upsert=await db('books?on_conflict=user_id,fingerprint&select=id',{
+ const upsert=await db('books?on_conflict=user_id,fingerprint&select=id,storage_path',{
   method:'POST',
   headers:{Prefer:'resolution=merge-duplicates,return=representation'},
   body:JSON.stringify(bookBody)
  });
  if(!upsert.res.ok)throw new Error('Falha ao sincronizar o livro.');
- const books=await upsert.res.json() as Array<{id:string}>;
+ const books=await upsert.res.json() as Array<{id:string;storage_path?:string|null}>;
  const bookId=books[0]?.id;
  if(!bookId)throw new Error('Livro sem identificador.');
  const [progressResponse,bookmarkResponse]=await Promise.all([
@@ -154,7 +168,7 @@ export async function openCloudBook(input:{fingerprint:string;fileName:string;fi
  ]);
  const progressRows=progressResponse.res.ok?await progressResponse.res.json() as Array<{page:number;sentence_index:number;updated_at?:string}>:[];
  const bookmarkRows=bookmarkResponse.res.ok?await bookmarkResponse.res.json() as Array<{page:number}>:[];
- return {bookId,progress:progressRows[0]||null,bookmarks:bookmarkRows.map(x=>x.page)};
+ return {bookId,storagePath:books[0]?.storage_path||null,progress:progressRows[0]||null,bookmarks:bookmarkRows.map(x=>x.page)};
 }
 
 export async function saveCloudProgress(bookId:string,page:number,sentenceIndex:number){
@@ -183,4 +197,101 @@ export async function removeCloudBookmark(bookId:string,page:number){
  if(!bookId)return;
  const {res}=await db('bookmarks?book_id=eq.'+encodeURIComponent(bookId)+'&page=eq.'+page,{method:'DELETE'});
  if(!res.ok)throw new Error('Falha ao remover marcador.');
+}
+
+
+function encodeStoragePath(path:string){
+ return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function base64Metadata(value:string){
+ const bytes=new TextEncoder().encode(value);
+ let binary='';
+ for(const b of bytes)binary+=String.fromCharCode(b);
+ return btoa(binary);
+}
+
+export async function listCloudLibrary():Promise<CloudLibraryBook[]>{
+ const booksResponse=await db('books?select=id,fingerprint,file_name,file_size,title,total_pages,storage_path,updated_at&order=updated_at.desc');
+ if(!booksResponse.res.ok)throw new Error('Falha ao carregar biblioteca.');
+ const books=await booksResponse.res.json() as Array<Omit<CloudLibraryBook,'page'|'sentence_index'>>;
+ const progressResponse=await db('reading_progress?select=book_id,page,sentence_index,updated_at');
+ const progress=progressResponse.res.ok?await progressResponse.res.json() as Array<{book_id:string;page:number;sentence_index:number}>:[];
+ const byBook=new Map(progress.map(p=>[p.book_id,p]));
+ return books.map(book=>{
+  const p=byBook.get(book.id);
+  return {...book,page:p?.page||1,sentence_index:p?.sentence_index||0};
+ });
+}
+
+export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percent:number)=>void){
+ const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
+ if(file.type&&file.type!=='application/pdf')throw new Error('Somente arquivos PDF podem ser enviados.');
+ const objectPath=session.user.id+'/'+bookId+'/document.pdf';
+ const endpoint='https://cmgwbowbvcwmnluzevoq.storage.supabase.co/storage/v1/upload/resumable';
+ const metadata=[
+  'bucketName '+base64Metadata('pdfs'),
+  'objectName '+base64Metadata(objectPath),
+  'contentType '+base64Metadata('application/pdf')
+ ].join(',');
+ const create=await fetch(endpoint,{
+  method:'POST',
+  headers:{
+   Authorization:'Bearer '+session.access_token,
+   apikey:SUPABASE_KEY,
+   'Tus-Resumable':'1.0.0',
+   'Upload-Length':String(file.size),
+   'Upload-Metadata':metadata,
+   'x-upsert':'true'
+  }
+ });
+ if(!create.ok)throw new Error('Não foi possível iniciar o envio do PDF.');
+ const rawLocation=create.headers.get('location');
+ if(!rawLocation)throw new Error('O servidor não retornou o endereço do envio.');
+ const uploadUrl=new URL(rawLocation,endpoint).toString();
+ const chunkSize=6*1024*1024;
+ let offset=0;
+ while(offset<file.size){
+  const chunk=file.slice(offset,Math.min(file.size,offset+chunkSize));
+  let attempt=0,response:Response|null=null;
+  while(attempt<4){
+   try{
+    response=await fetch(uploadUrl,{
+     method:'PATCH',
+     headers:{
+      Authorization:'Bearer '+session.access_token,
+      apikey:SUPABASE_KEY,
+      'Tus-Resumable':'1.0.0',
+      'Upload-Offset':String(offset),
+      'Content-Type':'application/offset+octet-stream'
+     },
+     body:chunk
+    });
+    if(response.ok)break;
+   }catch{}
+   attempt++;
+   if(attempt<4)await new Promise(resolve=>setTimeout(resolve,[700,1800,4000][attempt-1]||4000));
+  }
+  if(!response||!response.ok)throw new Error('Falha durante o envio do PDF.');
+  const nextOffset=Number(response.headers.get('Upload-Offset'));
+  offset=Number.isFinite(nextOffset)&&nextOffset>offset?nextOffset:Math.min(file.size,offset+chunk.size);
+  onProgress?.(Math.min(100,Math.round(offset/file.size*100)));
+ }
+ const update=await db('books?id=eq.'+encodeURIComponent(bookId),{
+  method:'PATCH',
+  headers:{Prefer:'return=minimal'},
+  body:JSON.stringify({storage_path:objectPath})
+ });
+ if(!update.res.ok)throw new Error('PDF enviado, mas não foi possível atualizar a biblioteca.');
+ return objectPath;
+}
+
+export async function downloadCloudPdf(book:Pick<CloudLibraryBook,'storage_path'|'file_name'>){
+ if(!book.storage_path)throw new Error('Este livro ainda não foi salvo na nuvem.');
+ const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
+ const url=SUPABASE_URL+'/storage/v1/object/authenticated/pdfs/'+encodeStoragePath(book.storage_path);
+ const res=await fetch(url,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token}});
+ if(!res.ok)throw new Error('Não foi possível baixar o PDF da sua biblioteca.');
+ const blob=await res.blob();
+ return new File([blob],book.file_name,{type:'application/pdf',lastModified:Date.now()});
 }
