@@ -88,6 +88,25 @@ function ReadingNookIllustration(){
  </svg>;
 }
 
+function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
+ const palettes=[
+  ['#173d31','#f0a25f','#fff4df'],
+  ['#e8d8bf','#c66c3e','#173d31'],
+  ['#d8e3dd','#8fae9c','#173d31'],
+  ['#f3d6bb','#f36b21','#603b2a'],
+  ['#d9d3c6','#2d4d43','#fff8ed'],
+  ['#eedfcb','#c08854','#4d3425']
+ ];
+ const p=palettes[index%palettes.length];
+ const title=(book.title||book.file_name.replace(/\.pdf$/i,'')).replace(/[_-]+/g,' ');
+ return <div style={{height:compact?128:190,borderRadius:14,background:`linear-gradient(155deg,${p[0]},${p[2]})`,boxShadow:'0 10px 24px rgba(64,43,24,.15)',position:'relative',overflow:'hidden',padding:compact?12:16,boxSizing:'border-box',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
+  <div style={{position:'absolute',right:-18,top:-18,width:84,height:84,borderRadius:'50%',background:p[1],opacity:.8}}/>
+  <div style={{position:'absolute',left:-18,bottom:18,width:110,height:46,borderRadius:'50%',background:p[1],opacity:.22,transform:'rotate(-12deg)'}}/>
+  <div style={{fontFamily:'Georgia,serif',fontSize:compact?15:20,lineHeight:1.05,fontWeight:800,color:p[2]==='#fff4df'||p[2]==='#fff8ed'?p[2]:p[2],maxWidth:'86%',position:'relative',zIndex:1}}>{title}</div>
+  <div style={{fontSize:10,fontWeight:800,letterSpacing:'.12em',textTransform:'uppercase',color:p[2],position:'relative',zIndex:1}}>Paper Voice</div>
+ </div>;
+}
+
 function isAppleTouch(){
  if(typeof navigator==='undefined')return false;
  const ua=navigator.userAgent||'';
@@ -913,73 +932,100 @@ export default function IpadReader(){
    </div>
   </footer>}
 
-  {accountOpen&&<div style={{position:'fixed',inset:0,zIndex:70,background:'rgba(0,0,0,.48)',display:'grid',placeItems:'center',padding:18}} onClick={()=>setAccountOpen(false)}>
-   <div style={{...card,width:'min(430px,94vw)',padding:18,boxShadow:'0 18px 60px rgba(0,0,0,.28)'}} onClick={e=>e.stopPropagation()}>
-    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginBottom:12}}>
-     <div>
-      <div style={{fontSize:20,fontWeight:750}}>Conta Paper Voice</div>
-      <div style={small}>{cloudSession?'Sincronização entre aparelhos ativada':'Entre para sincronizar leitura e preferências'}</div>
+  {accountOpen&&<div className="pv-modal-backdrop" style={{position:'fixed',inset:0,zIndex:70,background:'rgba(30,37,31,.48)',backdropFilter:'blur(8px)',display:'grid',placeItems:'center',padding:18}} onClick={()=>setAccountOpen(false)}>
+   <div className="pv-account-card" style={{...card,width:'min(460px,94vw)',padding:0,overflow:'hidden',boxShadow:'0 24px 80px rgba(38,28,17,.24)'}} onClick={e=>e.stopPropagation()}>
+    <div style={{padding:'24px 24px 18px',background:'linear-gradient(180deg,#fffaf2,#fff7ed)'}}>
+     <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
+      <div style={{display:'flex',gap:12,alignItems:'center'}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800,lineHeight:1}}>Paper Voice</div><div style={{...small,marginTop:4}}>Livros. Ideias. Você.</div></div></div>
+      <button type="button" style={{...button,padding:'7px 10px'}} onClick={()=>setAccountOpen(false)}>Fechar</button>
      </div>
-     <button type="button" style={{...button,padding:'7px 10px'}} onClick={()=>setAccountOpen(false)}>Fechar</button>
     </div>
-    {cloudSession?<div style={{display:'grid',gap:10}}>
-     <div style={{...card,background:'#f7f7f4'}}>
-      <div style={{fontWeight:650}}>{cloudSession.user.email||'Conta conectada'}</div>
-      <div style={{...small,marginTop:4}}>Página, trecho, marcadores, voz, velocidade e destaque são sincronizados.</div>
+    {cloudSession?<div style={{padding:'22px 24px 26px',display:'grid',gap:12}}>
+     <div>
+      <div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Sua conta</div>
+      <div style={{...small,marginTop:5}}>Sincronização entre aparelhos ativada.</div>
+     </div>
+     <div style={{...card,background:'#f5eee4',boxShadow:'none'}}>
+      <div style={{fontWeight:800,color:'#173d31'}}>{cloudSession.user.email||'Conta conectada'}</div>
+      <div style={{...small,marginTop:5}}>Página, trecho, marcadores, voz, velocidade e destaque ficam sincronizados.</div>
      </div>
      {doc&&<button type="button" style={currentCloudStored?button:primary} disabled={accountBusy||currentCloudStored} onClick={()=>void saveCurrentPdfToCloud()}>{currentCloudStored?'Livro atual salvo na nuvem':uploadProgress!==null?'Enviando '+uploadProgress+'%':'Salvar livro atual na nuvem'}</button>}
-     {accountMessage&&<div style={small}>{accountMessage}</div>}
-     <button type="button" style={button} onClick={()=>{setAccountOpen(false);void refreshCloudLibrary();setLibraryOpen(true);}}>Abrir biblioteca</button>
-     <button type="button" style={button} disabled={accountBusy} onClick={()=>void handleSignOut()}>{accountBusy?'Aguarde…':'Sair da conta'}</button>
-    </div>:<div style={{display:'grid',gap:10}}>
-     <label style={{display:'grid',gap:5,fontSize:13,fontWeight:600}}>E-mail
-      <input type="email" autoComplete="email" value={accountEmail} onChange={e=>setAccountEmail(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'white'}}/>
-     </label>
-     <label style={{display:'grid',gap:5,fontSize:13,fontWeight:600}}>Senha
-      <input type="password" autoComplete="current-password" value={accountPassword} onChange={e=>setAccountPassword(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'white'}}/>
-     </label>
-     {accountMessage&&<div style={{...small,color:accountMessage.includes('Não')||accountMessage.includes('Digite')||accountMessage.includes('Use um')?'#8c2727':'#40505f'}}>{accountMessage}</div>}
-     <div style={{display:'flex',gap:8}}>
-      <button type="button" style={{...primary,flex:1}} disabled={accountBusy} onClick={()=>void handleSignIn()}>{accountBusy?'Aguarde…':'Entrar'}</button>
-      <button type="button" style={{...button,flex:1}} disabled={accountBusy} onClick={()=>void handleSignUp()}>Criar conta</button>
+     {accountMessage&&<div style={{...small,padding:'4px 2px'}}>{accountMessage}</div>}
+     <button type="button" style={button} onClick={()=>{setAccountOpen(false);void refreshCloudLibrary();setLibraryOpen(true);}}>Abrir minha biblioteca</button>
+     <button type="button" style={{...button,color:'#8a4932'}} disabled={accountBusy} onClick={()=>void handleSignOut()}>{accountBusy?'Aguarde…':'Sair da conta'}</button>
+    </div>:<div style={{padding:'16px 24px 28px'}}>
+     <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,marginBottom:18}}>
+      <div><div style={{fontFamily:'Georgia,serif',fontSize:34,fontWeight:800,lineHeight:1.02}}>Bem-vindo<br/>de volta!</div><div style={{...small,fontSize:14,marginTop:8}}>Entre na sua conta e continue sua jornada de leitura.</div></div>
+      <button type="button" onClick={()=>void handleSignUp()} disabled={accountBusy} style={{border:0,background:'transparent',color:'#f36b21',fontWeight:800,padding:'6px 0'}}>Criar conta</button>
      </div>
-     <div style={small}>Ao criar uma conta, você poderá usar o mesmo e-mail e senha em outros aparelhos.</div>
+     <div style={{display:'grid',gap:12}}>
+      <label style={{display:'grid',gap:6,fontSize:13,fontWeight:800}}>E-mail
+       <input type="email" autoComplete="email" placeholder="seu@email.com" value={accountEmail} onChange={e=>setAccountEmail(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'#fffdf9',padding:'13px 14px'}}/>
+      </label>
+      <label style={{display:'grid',gap:6,fontSize:13,fontWeight:800}}>Senha
+       <input type="password" autoComplete="current-password" placeholder="Sua senha" value={accountPassword} onChange={e=>setAccountPassword(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'#fffdf9',padding:'13px 14px'}}/>
+      </label>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,fontSize:12,color:'#7c786f'}}><span>Use a mesma conta em todos os aparelhos.</span><span style={{color:'#f36b21',fontWeight:700}}>Sincronização segura</span></div>
+      {accountMessage&&<div style={{...small,color:accountMessage.includes('Não')||accountMessage.includes('Digite')||accountMessage.includes('Use um')?'#9c4231':'#52645a',background:'#f6eee3',borderRadius:10,padding:'9px 10px'}}>{accountMessage}</div>}
+      <button type="button" style={{...primary,width:'100%',padding:'13px 16px',fontSize:16}} disabled={accountBusy} onClick={()=>void handleSignIn()}>{accountBusy?'Aguarde…':'Entrar'}</button>
+      <button type="button" style={{...button,width:'100%',padding:'12px 16px'}} disabled={accountBusy} onClick={()=>void handleSignUp()}>Ainda não tem conta? Criar conta</button>
+     </div>
+     <div className="pv-books-decoration" style={{marginTop:22,display:'flex',alignItems:'flex-end',gap:8,justifyContent:'center'}}>
+      <div style={{width:86,height:18,borderRadius:5,background:'#c47a48',transform:'rotate(-2deg)'}}/>
+      <div style={{width:110,height:22,borderRadius:5,background:'#173d31',transform:'rotate(1deg)'}}/>
+      <div style={{width:96,height:20,borderRadius:5,background:'#e8c69b',transform:'rotate(-1deg)'}}/>
+     </div>
     </div>}
    </div>
   </div>}
 
-  {libraryOpen&&cloudSession&&<div style={{position:'fixed',inset:0,zIndex:65,background:'#f6f5f2',overflow:'auto',padding:'max(28px,calc(12px + env(safe-area-inset-top,0px))) max(18px,calc(18px + env(safe-area-inset-right,0px))) calc(28px + env(safe-area-inset-bottom,0px)) max(18px,calc(18px + env(safe-area-inset-left,0px)))'}}>
-   <div style={{maxWidth:980,margin:'0 auto'}}>
-    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:24}}>
-     <div><div style={{fontFamily:'Georgia,serif',fontSize:36,fontWeight:700}}>Biblioteca</div><div style={{...small,marginTop:3}}>{cloudSession.user.email} · {libraryBooks.length} {libraryBooks.length===1?'livro':'livros'}</div></div>
-     <div style={{display:'flex',gap:8}}>
+  {libraryOpen&&cloudSession&&<div className="pv-library-screen" style={{position:'fixed',inset:0,zIndex:65,background:'#fbf7ef',overflow:'auto',padding:'max(28px,calc(12px + env(safe-area-inset-top,0px))) max(18px,calc(18px + env(safe-area-inset-right,0px))) calc(32px + env(safe-area-inset-bottom,0px)) max(18px,calc(18px + env(safe-area-inset-left,0px)))'}}>
+   <div style={{maxWidth:1120,margin:'0 auto'}}>
+    <div className="pv-library-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,marginBottom:22}}>
+     <div style={{display:'flex',alignItems:'center',gap:12}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:32,fontWeight:800,lineHeight:1}}>Paper Voice</div><div style={{...small,marginTop:4}}>Sua biblioteca, sempre com você.</div></div></div>
+     <div style={{display:'flex',gap:8,alignItems:'center'}}>
       <button type="button" style={button} onClick={()=>choosePdfForLibrary()}>Adicionar PDF</button>
       <button type="button" style={button} onClick={()=>setLibraryOpen(false)}>Fechar</button>
      </div>
     </div>
-    {libraryBusy&&<div style={{...card,marginBottom:16}}>Atualizando biblioteca…</div>}
-    {!libraryBusy&&libraryBooks.length===0&&<div style={{...card,padding:28,textAlign:'center'}}>
-     <div style={{fontSize:20,fontWeight:700}}>Sua biblioteca está vazia</div>
-     <div style={{...small,marginTop:6}}>Abra um PDF e use “Salvar livro atual na nuvem”.</div>
+
+    <div className="pv-library-tabs" style={{display:'flex',gap:8,alignItems:'center',marginBottom:24,flexWrap:'wrap'}}>
+     <span style={{...primary,padding:'8px 14px'}}>Todos</span><span style={{...button,padding:'8px 14px'}}>Livros</span><span style={{...button,padding:'8px 14px'}}>PDFs</span><span style={{...button,padding:'8px 14px'}}>Favoritos</span>
+     <span style={{...small,marginLeft:'auto'}}>{cloudSession.user.email} · {libraryBooks.length} {libraryBooks.length===1?'item':'itens'}</span>
+    </div>
+
+    {libraryBusy&&<div style={{...card,marginBottom:16}}>Atualizando sua biblioteca…</div>}
+    {!libraryBusy&&libraryBooks.length===0&&<div style={{...card,padding:34,textAlign:'center'}}>
+     <div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Sua biblioteca está pronta.</div>
+     <div style={{...small,fontSize:14,marginTop:7}}>Adicione um PDF e o Paper Voice salva sua leitura, marcadores e progresso.</div>
+     <button type="button" style={{...primary,marginTop:18}} onClick={()=>choosePdfForLibrary()}>Adicionar primeiro PDF</button>
     </div>}
+
     {libraryBooks.length>0&&<>
-     <div style={{fontFamily:'Georgia,serif',fontSize:24,fontWeight:700,margin:'4px 0 12px'}}>Continuar</div>
-     <button type="button" disabled={libraryBusy} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{...card,width:'100%',display:'flex',alignItems:'center',gap:16,textAlign:'left',marginBottom:26,cursor:'pointer'}}>
-      <div style={{width:78,height:104,borderRadius:8,background:'#171717',color:'white',display:'grid',placeItems:'center',fontFamily:'Georgia,serif',fontSize:26,flex:'0 0 auto'}}>P</div>
-      <div style={{minWidth:0,flex:1}}>
-       <div style={{fontSize:21,fontWeight:750,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
-       <div style={{...small,marginTop:5}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'PDF na nuvem':'toque para enviar o PDF'}</div>
-       <div style={{height:6,background:'#e1ddd4',borderRadius:99,marginTop:12,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#17202a'}}/></div>
+     <section style={{marginBottom:30}}>
+      <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:12}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Continuar lendo</div><div style={small}>Retome exatamente de onde parou.</div></div><span style={{...small,color:'#f36b21',fontWeight:800}}>Ver tudo</span></div>
+      <button type="button" disabled={libraryBusy} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{...card,width:'100%',display:'grid',gridTemplateColumns:'118px 1fr auto',alignItems:'center',gap:18,textAlign:'left',cursor:'pointer',background:'linear-gradient(135deg,#fff8ec,#f7ead8)',padding:16}}>
+       <BookCover book={libraryBooks[0]} index={0} compact/>
+       <div style={{minWidth:0}}>
+        <div style={{fontFamily:'Georgia,serif',fontSize:25,fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
+        <div style={{...small,marginTop:5}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'salvo na nuvem':'toque para enviar o PDF'}</div>
+        <div style={{height:7,background:'#e6dccd',borderRadius:99,marginTop:14,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#f36b21'}}/></div>
+       </div>
+       <span style={{...primary,padding:'10px 15px',whiteSpace:'nowrap'}}>Continuar</span>
+      </button>
+     </section>
+
+     <section>
+      <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:14}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Minha Biblioteca</div><div style={small}>Livros e PDFs sincronizados.</div></div><span style={{...small}}>Recentemente adicionados</span></div>
+      <div className="pv-book-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))',gap:18}}>
+       {libraryBooks.map((book,i)=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):choosePdfForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#173d31',cursor:'pointer'}}>
+        <BookCover book={book} index={i}/>
+        <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:16,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
+        <div style={{...small,marginTop:4}}>Pág. {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Enviar PDF'}</div>
+        <div style={{height:4,background:'#e8dfd3',borderRadius:99,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((book.page/Math.max(1,book.total_pages))*100))+'%',background:i%2?'#173d31':'#f36b21'}}/></div>
+       </button>)}
       </div>
-     </button>
-     <div style={{fontFamily:'Georgia,serif',fontSize:24,fontWeight:700,margin:'0 0 12px'}}>Todos os livros</div>
-     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:18}}>
-      {libraryBooks.map(book=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):choosePdfForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#17202a',opacity:1,cursor:'pointer'}}>
-       <div style={{height:190,borderRadius:12,background:'linear-gradient(145deg,#1b1b1b,#3a3a3a)',boxShadow:'0 7px 18px rgba(0,0,0,.17)',display:'grid',placeItems:'center',color:'white',fontFamily:'Georgia,serif',fontSize:40}}>P</div>
-       <div style={{fontWeight:720,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
-       <div style={{...small,marginTop:3}}>Pág. {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Toque para enviar o PDF'}</div>
-      </button>)}
-     </div>
+     </section>
     </>}
    </div>
   </div>}
