@@ -106,7 +106,7 @@ export default function IpadReader(){
  const [sentences,setSentences]=useState<string[]>([]),[index,setIndex]=useState(0);
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
- const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto');
+ const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false);
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null);
@@ -150,8 +150,10 @@ export default function IpadReader(){
   const canvas=canvasRef.current;
   if(!canvas)throw new Error('Área de visualização do PDF indisponível.');
   const base=pdfPage.getViewport({scale:1});
-  const available=Math.max(280,(canvasWrap.current?.clientWidth||Math.min(window.innerWidth-24,900))-16);
-  const cssScale=available/base.width;
+  const wrap=canvasWrap.current;
+  const availableWidth=Math.max(280,(wrap?.clientWidth||Math.min(window.innerWidth-24,900))-8);
+  const availableHeight=Math.max(320,(wrap?.clientHeight||Math.floor(window.innerHeight*.72))-8);
+  const cssScale=Math.min(availableWidth/base.width,availableHeight/base.height);
   const viewport=pdfPage.getViewport({scale:cssScale});
   const dpr=Math.min(window.devicePixelRatio||1,2);
   canvas.width=Math.max(1,Math.floor(viewport.width*dpr));
@@ -199,7 +201,7 @@ export default function IpadReader(){
     standardFontDataUrl:PDFJS_BASE+'standard_fonts/'
    }).promise;
    await docRef.current?.destroy();
-   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);
+   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompact(true);
    fileKey.current=(file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
    let start=1,savedIndex=0;
    try{
@@ -208,6 +210,7 @@ export default function IpadReader(){
     if(Number.isInteger(saved.index)&&saved.index>=0)savedIndex=saved.index;
    }catch{}
    stageName='extrair texto';
+   await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
    await extractPage(next,start,savedIndex);
   }catch(e){
    setError('Falha ao abrir o PDF em "'+stageName+'": '+(e instanceof Error?e.message:String(e)));
@@ -314,6 +317,20 @@ export default function IpadReader(){
   void goPage(target);
  }
 
+ useEffect(()=>{
+  if(!doc)return;
+  let timer:number|undefined;
+  const rerender=()=>{
+   if(timer)window.clearTimeout(timer);
+   timer=window.setTimeout(()=>{
+    const d=docRef.current;
+    if(d)void extractPage(d,pageRef.current,indexRef.current).catch(()=>{});
+   },120);
+  };
+  window.addEventListener('resize',rerender);
+  return()=>{if(timer)window.clearTimeout(timer);window.removeEventListener('resize',rerender);};
+ },[doc,compact]);
+
  function moveSentence(delta:number){
   const list=sentencesRef.current;if(!list.length)return;
   const next=Math.max(0,Math.min(list.length-1,indexRef.current+delta));
@@ -324,33 +341,34 @@ export default function IpadReader(){
 
  const active=sentences[index]||'';
 
- return <main style={shell}>
-  <header style={top}>
+ return <main style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
+  {(!compact||!doc)&&<header style={top}>
    <div style={{minWidth:0,flex:1}}>
     <div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div>
     <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'}</div>
    </div>
+   {doc&&<button style={button} onClick={()=>setCompact(true)}>Modo leitura</button>}
    <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
    <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{const f=e.target.files?.[0];if(f)void openFile(f);e.currentTarget.value='';}}/>
-  </header>
+  </header>}
 
-  <section style={{padding:12,display:'grid',gap:10,flex:1}}>
+  <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
-   <div ref={canvasWrap} style={{...card,padding:8,minHeight:'58dvh',overflow:'auto'}}>
-    <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',height:'auto',borderRadius:8}}/>
+   <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
+    <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{display:doc?'block':'none',margin:'0 auto',background:'white',maxWidth:'100%',maxHeight:'100%',height:'auto'}}/>
     {!doc&&<div style={{padding:'48px 18px',textAlign:'center'}}>
      <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
      <p style={{margin:0,color:'#657080'}}>Abra um PDF. Cada página será exibida individualmente e poderá ser acessada diretamente pelo número.</p>
     </div>}
    </div>
-   {doc&&<div style={{...card,background:'#fff7dc'}}>
+   {doc&&!compact&&<div style={{...card,background:'#fff7dc'}}>
     <div style={{...small,marginBottom:5}}>TRECHO ATUAL {sentences.length?index+1:0}/{sentences.length}</div>
     <div style={{fontFamily:'Georgia,serif',fontSize:18,lineHeight:1.55}}>{active||'Esta página não possui texto selecionável. Se for uma página digitalizada, será necessário OCR.'}</div>
    </div>}
   </section>
 
-  <footer style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
+  {!compact&&<footer style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
    <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:8}}>
     <span style={{...small,fontWeight:600}}>Ir para página</span>
     <input
@@ -381,6 +399,28 @@ export default function IpadReader(){
      {[0.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×</option>)}
     </select>
    </div>
-  </footer>
+  </footer>}
+
+  {compact&&doc&&<>
+   <div style={{position:'fixed',top:8,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.72)',color:'white',borderRadius:16,padding:'5px 10px',fontSize:12}}>
+    Página {page} de {pages}
+   </div>
+   <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
+    <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
+    <input
+     aria-label="Número da página"
+     inputMode="numeric"
+     pattern="[0-9]*"
+     value={jumpValue}
+     onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}
+     style={{...button,padding:'7px 6px',width:58,textAlign:'center'}}
+    />
+    <span style={{...small,whiteSpace:'nowrap'}}>/ {pages}</span>
+    <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
+    <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
+   </form>
+  </>}
  </main>;
 }
