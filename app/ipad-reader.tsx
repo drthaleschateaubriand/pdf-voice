@@ -200,7 +200,7 @@ export default function IpadReader(){
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),playWanted=useRef(false),token=useRef(0);
- const cache=useRef(new Map<string,string>()),fileKey=useRef('');
+ const cache=useRef(new Map<string,string>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
 
  useEffect(()=>{
   const nav=navigator as Navigator & {standalone?:boolean};
@@ -447,6 +447,25 @@ export default function IpadReader(){
   if(reset){setIndex(0);indexRef.current=0;}
  }
 
+ function stopAndClearAudio(){
+  token.current++;playWanted.current=false;
+  for(const controller of audioRequests.current)controller.abort();
+  audioRequests.current.clear();
+  const a=audioRef.current;
+  if(a){
+   a.pause();a.onended=null;a.onerror=null;
+   try{a.currentTime=0;}catch{}
+   a.removeAttribute('src');
+   try{a.load();}catch{}
+  }
+  for(const url of cache.current.values())URL.revokeObjectURL(url);
+  cache.current.clear();
+  clearSpokenHighlight();
+  setMode('idle');
+  setError('');
+  setStage('Parado · cache de áudio limpo');
+ }
+
  const clearSelection=useCallback(()=>{
   setSelectedText('');
   selectionStartRef.current={item:0,offset:0};
@@ -619,18 +638,25 @@ export default function IpadReader(){
 
  async function audioUrl(text:string){
   const key=voice+'|'+text;if(cache.current.has(key))return cache.current.get(key)!;
-  const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'openai',text,voice})});
-  if(!res.ok){
-   let msg='Falha ao gerar voz ('+res.status+').';
-   try{const j=await res.json() as {error?:string};if(j.error)msg=j.error;}catch{}
-   throw new Error(msg);
+  const controller=new AbortController();audioRequests.current.add(controller);
+  try{
+   const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'openai',text,voice}),signal:controller.signal});
+   if(!res.ok){
+    let msg='Falha ao gerar voz ('+res.status+').';
+    try{const j=await res.json() as {error?:string};if(j.error)msg=j.error;}catch{}
+    throw new Error(msg);
+   }
+   const blob=await res.blob();
+   if(controller.signal.aborted)throw new DOMException('Leitura interrompida','AbortError');
+   const url=URL.createObjectURL(blob);cache.current.set(key,url);
+   if(cache.current.size>80){
+    const first=cache.current.keys().next().value as string|undefined;
+    if(first){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
+   }
+   return url;
+  }finally{
+   audioRequests.current.delete(controller);
   }
-  const blob=await res.blob(),url=URL.createObjectURL(blob);cache.current.set(key,url);
-  if(cache.current.size>80){
-   const first=cache.current.keys().next().value as string|undefined;
-   if(first){const old=cache.current.get(first);if(old)URL.revokeObjectURL(old);cache.current.delete(first);}
-  }
-  return url;
  }
 
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
@@ -669,6 +695,8 @@ export default function IpadReader(){
    }
    if(cloudBookIdRef.current)void saveCloudProgress(cloudBookIdRef.current,pageRef.current,i).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
   }catch(e){
+   if(e instanceof DOMException&&e.name==='AbortError')return;
+   if(currentToken!==token.current)return;
    setError(e instanceof Error?e.message:'Falha na narração.');
    stop();
   }
@@ -912,6 +940,7 @@ export default function IpadReader(){
     <button style={button} disabled={!doc||page<=1} onClick={()=>void goPage(page-1)}>Página anterior</button>
     <button style={button} disabled={!sentences.length||index<=0} onClick={()=>moveSentence(-1)}>Trecho anterior</button>
     <button style={primary} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
+    <button type="button" style={{...button,borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} disabled={!doc} onClick={stopAndClearAudio}>Parar</button>
     <button style={button} disabled={!sentences.length||index>=sentences.length-1} onClick={()=>moveSentence(1)}>Próximo trecho</button>
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>Próxima página</button>
    </div>
@@ -1059,6 +1088,7 @@ export default function IpadReader(){
     <span style={{...small,whiteSpace:'nowrap'}}>/ {pages}</span>
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
+    <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
