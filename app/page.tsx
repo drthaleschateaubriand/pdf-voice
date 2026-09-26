@@ -87,6 +87,29 @@ export default function Home(){
  const scopeRef=useRef<Scope>('page'),selectionRef=useRef<SelectionData|null>(null),textLayer=useRef<HTMLDivElement>(null);
  const audio=useRef<HTMLAudioElement|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(({player})=>{player.pause();URL.revokeObjectURL(player.src);player.removeAttribute('src');player.load();},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
  function stop(){epoch.current++;audio.current?.pause();audio.current=null;pauseRequested.current=false;setMode('idle');}
+ async function ensurePageSource(n:number,current:PDFDocumentProxy|null=docRef.current):Promise<PageSource|null>{
+  if(!current||n<1||n>current.numPages)return null;
+  const existing=pageSources.current.get(n);if(existing)return existing;
+  const pdfjs=await import('pdfjs-dist');
+  const pdfpage=await current.getPage(n);
+  const viewport=pdfpage.getViewport({scale:1.5});
+  const content=await pdfpage.getTextContent();
+  const items=content.items.filter((x):x is typeof x & Item=>'str' in x) as Item[];
+  const vocabulary=new Set(documentWords.current);
+  for(const item of items)for(const word of item.str.toLowerCase().match(/[a-z]{3,}/g)||[])vocabulary.add(word);
+  documentWords.current=vocabulary;
+  const boxes=items.map(item=>{const t=pdfjs.Util.transform(viewport.transform,item.transform);const h=Math.hypot(t[2],t[3]);return {left:t[4]/viewport.width*100,top:(t[5]-h*.85)/viewport.height*100,width:item.width*viewport.scale/viewport.width*100,height:h/viewport.height*100};});
+  const source={items,width:viewport.width,height:viewport.height,boxes,view:[...pdfpage.view]};
+  pageSources.current.set(n,source);
+  furniture.current=detectFurniture(pageSources.current);
+  return source;
+ }
+ async function ensurePageData(n:number,current:PDFDocumentProxy|null=docRef.current):Promise<PageData|null>{
+  const cached=pageCache.current.get(n);if(cached)return cached;
+  const source=await ensurePageSource(n,current);if(!source)return null;
+  const next={...source,...reflowItems(source.items,documentWords.current,{furniture:furniture.current.get(n),view:source.view})};
+  pageCache.current.set(n,next);return next;
+ }
  // iPad/iPhone Safari uses the native <input type="file"> path directly.
  // Chromium may use File System Access so Reload can re-read the same file.
  async function openPicker(){
@@ -123,26 +146,25 @@ export default function Home(){
  }
  async function load(source:PickedFile,keepPage=false){
   const id=++loadId.current;stop();auto.current=false;setSelection(null);selectionRef.current=null;setLoading(true);setError('');setData(null);setDoc(null);
-  try{const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
+  let stage='starting';
+  try{
+   stage='loading PDF engine';const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
    if(source.file.size>100*1024*1024)throw Error('Please choose a PDF smaller than 100 MB.');
-   const bytes=await source.file.arrayBuffer().catch(e=>{throw e instanceof DOMException&&e.name==='NotReadableError'?Error('The file changed on disk and this browser cannot re-read it. Use Open PDF to load the new version.'):e;});
-   const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
-   if(id!==loadId.current){await next.destroy();return;}await docRef.current?.destroy();docRef.current=next;
-   const vocabulary=new Set<string>(),sources=new Map<number,PageSource>();
-   for(let n=1;n<=next.numPages;n++){
-    if(id!==loadId.current)return;
-    const pdfpage=await next.getPage(n);const viewport=pdfpage.getViewport({scale:1.5});const content=await pdfpage.getTextContent();
-    const items=content.items.filter((x):x is typeof x & Item=>'str' in x) as Item[];
-    for(const item of items)for(const word of item.str.toLowerCase().match(/[a-z]{3,}/g)||[])vocabulary.add(word);
-    const boxes=items.map(item=>{const t=pdfjs.Util.transform(viewport.transform,item.transform);const h=Math.hypot(t[2],t[3]);return {left:t[4]/viewport.width*100,top:(t[5]-h*.85)/viewport.height*100,width:item.width*viewport.scale/viewport.width*100,height:h/viewport.height*100};});
-    sources.set(n,{items,width:viewport.width,height:viewport.height,boxes,view:[...pdfpage.view]});
-   }
-   documentWords.current=vocabulary;pageSources.current=sources;furniture.current=detectFurniture(sources);pageCache.current=new Map();cropRequests.current=new Set();setCrops(new Map());
+   stage='reading file';const bytes=await source.file.arrayBuffer().catch(e=>{throw e instanceof DOMException&&e.name==='NotReadableError'?Error('The file changed on disk and this browser cannot re-read it. Use Open PDF to load the new version.'):e;});
+   stage='opening PDF';const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
+   if(id!==loadId.current){await next.destroy();return;}
+   stage='replacing previous PDF';await docRef.current?.destroy();docRef.current=next;
+   documentWords.current=new Set();pageSources.current=new Map();furniture.current=new Map();pageCache.current=new Map();cropRequests.current=new Set();setCrops(new Map());
    const target=keepPage?Math.min(page,next.numPages):1;
+   stage='reading first page';await ensurePageSource(target,next);
+   if(id!==loadId.current){await next.destroy();return;}
    picked.current=source;setName(source.file.name);setPage(target);setIndex(0);pendingScroll.current=target;jumpTo(target);setMaterialized(Math.min(next.numPages,READER_BATCH));setDoc(next);
-   // A freshly opened document starts as a clean page; a reload keeps the room as it is.
+   // Prepare only the next page in the background. Large books no longer parse every page up front.
+   if(target<next.numPages)void ensurePageSource(target+1,next).catch(()=>{});
    if(!keepPage&&!cleanMode)enterClean();
-  }catch(e){if(id===loadId.current)setError(e instanceof Error?e.message:'Could not open this PDF.');}finally{if(id===loadId.current)setLoading(false);}
+  }catch(e){
+   if(id===loadId.current){const message=e instanceof Error?e.message:'Could not open this PDF.';setError(`Could not open PDF while ${stage}: ${message}`);}
+  }finally{if(id===loadId.current)setLoading(false);}
  }
  useEffect(()=>{const buffer=cache.current;fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
   let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
@@ -150,7 +172,7 @@ export default function Home(){
   const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list[0];if(!chosen)return;
   setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
  }).catch(()=>{});return()=>{loadId.current++;epoch.current++;audio.current?.pause();buffer.clear();void docRef.current?.destroy();};},[]);
- useEffect(()=>{if(!doc)return;setData(pageData(page));setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));},[doc,page]);
+ useEffect(()=>{if(!doc)return;let cancelled=false;setData(null);void ensurePageData(page,doc).then(next=>{if(cancelled||docRef.current!==doc)return;setData(next);setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));if(page<doc.numPages)void ensurePageSource(page+1,doc).catch(()=>{});}).catch(e=>{if(!cancelled)setError('Could not read page '+page+': '+(e instanceof Error?e.message:'unknown error'));});return()=>{cancelled=true;};},[doc,page]);
  useEffect(()=>{if(data&&auto.current){auto.current=false;if(data.passages.length)void speak(0,data.passages,scopeRef.current,epoch.current);else if(doc&&page<doc.numPages){auto.current=true;setPage(page+1);}else setMode('idle');}},[data]);
  useEffect(()=>{(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope]);
  useEffect(()=>{speedRef.current=speed;if(audio.current)audio.current.playbackRate=speed;},[speed]);
