@@ -87,16 +87,32 @@ export default function Home(){
  const scopeRef=useRef<Scope>('page'),selectionRef=useRef<SelectionData|null>(null),textLayer=useRef<HTMLDivElement>(null);
  const audio=useRef<HTMLAudioElement|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(({player})=>{player.pause();URL.revokeObjectURL(player.src);player.removeAttribute('src');player.load();},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
  function stop(){epoch.current++;audio.current?.pause();audio.current=null;pauseRequested.current=false;setMode('idle');}
- // Open PDF prefers the handle-returning picker so Reload can re-read the file.
+ // iPad/iPhone Safari uses the native <input type="file"> path directly.
+ // Chromium may use File System Access so Reload can re-read the same file.
  async function openPicker(){
+  const ua=navigator.userAgent||'';
+  const appleTouch=/iPad|iPhone|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
+  if(appleTouch){fileInput.current?.click();return;}
   const picker=(window as Window&FilePicker).showOpenFilePicker;
-  if(!picker){fileInput.current?.click();return;}
-  try{const [handle]=await picker.call(window,{types:[{description:'PDF',accept:{'application/pdf':['.pdf']}}]});await load({file:await handle.getFile(),handle});}
-  catch(e){if(!(e instanceof DOMException&&e.name==='AbortError'))setError(e instanceof Error?e.message:'Could not open this PDF.');}
+  if(typeof picker!=='function'){fileInput.current?.click();return;}
+  try{
+   const [handle]=await picker.call(window,{types:[{description:'PDF',accept:{'application/pdf':['.pdf']}}]});
+   if(!handle){fileInput.current?.click();return;}
+   await load({file:await handle.getFile(),handle});
+  }catch(e){
+   if(e instanceof DOMException&&e.name==='AbortError')return;
+   // Some Safari/WebKit builds expose a partial picker API that throws when called.
+   // Fall back to the universally supported file input instead of surfacing that error.
+   fileInput.current?.click();
+  }
  }
  function dropFile(transfer:DataTransfer){
   const file=transfer.files[0];if(!file)return;
-  const item=transfer.items[0] as HandleItem|undefined,pending=item?.getAsFileSystemHandle?.();
+  const item=transfer.items[0] as HandleItem|undefined;
+  let pending:Promise<FileSystemHandle|null>|null=null;
+  try{
+   if(item&&typeof item.getAsFileSystemHandle==='function')pending=item.getAsFileSystemHandle();
+  }catch{}
   void (pending?pending.catch(()=>null):Promise.resolve(null)).then(handle=>load({file,handle:handle?.kind==='file'?handle as FileSystemFileHandle:undefined}));
  }
  // Re-read the open file from disk (a revised export, say), keeping the page.
@@ -111,7 +127,7 @@ export default function Home(){
    if(source.file.size>100*1024*1024)throw Error('Please choose a PDF smaller than 100 MB.');
    const bytes=await source.file.arrayBuffer().catch(e=>{throw e instanceof DOMException&&e.name==='NotReadableError'?Error('The file changed on disk and this browser cannot re-read it. Use Open PDF to load the new version.'):e;});
    const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
-   if(id!==loadId.current){await next.loadingTask.destroy();return;}await docRef.current?.loadingTask.destroy();docRef.current=next;
+   if(id!==loadId.current){await next.destroy();return;}await docRef.current?.destroy();docRef.current=next;
    const vocabulary=new Set<string>(),sources=new Map<number,PageSource>();
    for(let n=1;n<=next.numPages;n++){
     if(id!==loadId.current)return;
@@ -133,7 +149,7 @@ export default function Home(){
   // OpenAI is the default engine; a saved choice or, failing that, whichever engine has a key wins.
   const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list[0];if(!chosen)return;
   setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
- }).catch(()=>{});return()=>{loadId.current++;epoch.current++;audio.current?.pause();buffer.clear();void docRef.current?.loadingTask.destroy();};},[]);
+ }).catch(()=>{});return()=>{loadId.current++;epoch.current++;audio.current?.pause();buffer.clear();void docRef.current?.destroy();};},[]);
  useEffect(()=>{if(!doc)return;setData(pageData(page));setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));},[doc,page]);
  useEffect(()=>{if(data&&auto.current){auto.current=false;if(data.passages.length)void speak(0,data.passages,scopeRef.current,epoch.current);else if(doc&&page<doc.numPages){auto.current=true;setPage(page+1);}else setMode('idle');}},[data]);
  useEffect(()=>{(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope]);
