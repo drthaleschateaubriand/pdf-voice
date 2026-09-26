@@ -792,15 +792,20 @@ export default function IpadReader(){
 
  return <main style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
   {(!compact||!doc)&&<header className="paper-voice-topbar" style={top}>
-   <div style={{minWidth:0,flex:1}}>
-    <div style={{fontWeight:700,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{name}</div>
-    <div style={small}>{pages?'Página '+page+' de '+pages:'Leitor PDF para iPad'} · {connected?'OpenAI conectada':'OpenAI não conectada'} · {cloudStatus}</div>
+   <div className="pv-brand" style={{display:'flex',alignItems:'center',gap:10,minWidth:0,flex:'1 1 260px'}}>
+    <PaperVoiceMark size={42}/>
+    <div style={{minWidth:0}}>
+     <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:24,lineHeight:1,color:'#173d31'}}>Paper Voice</div>
+     <div style={{...small,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pages?name+' · pág. '+page+' de '+pages:'Livros. Ideias. Você.'}</div>
+    </div>
    </div>
-   {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
-   {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Biblioteca</button>}
-   <button style={button} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
-   <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
-   <button style={button} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
+   <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
+    {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
+    {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
+    <button style={button} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
+    <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
+    <button style={primary} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
+   </nav>
    <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{
     const picked=e.target.files?.[0];e.currentTarget.value='';if(!picked)return;
     const mode=cloudPickerModeRef.current,target=cloudPickerFingerprintRef.current;
@@ -831,21 +836,36 @@ export default function IpadReader(){
       onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
      />
     </div>
-    {!doc&&<div style={{padding:'42px 18px',textAlign:'center',width:'100%',boxSizing:'border-box'}}>
-     <h2 style={{margin:'0 0 8px'}}>Paper Voice para iPad</h2>
-     <p style={{margin:'0 0 18px',color:'#657080'}}>Abra um PDF ou continue um livro salvo na sua biblioteca.</p>
-     <div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>
-      <button type="button" style={primary} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
-      {cloudSession&&<button type="button" style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha biblioteca{libraryBooks.length?' ('+libraryBooks.length+')':''}</button>}
+    {!doc&&<div className="pv-welcome" style={{width:'100%',boxSizing:'border-box',maxWidth:1180,margin:'0 auto',padding:'22px'}}>
+     <div className="pv-welcome-art" style={{position:'relative',overflow:'hidden',borderRadius:28,minHeight:520,boxShadow:'0 20px 55px rgba(67,45,24,.12)'}}>
+      <ReadingNookIllustration/>
      </div>
-     {cloudSession&&libraryBooks[0]&&<div style={{...card,maxWidth:440,margin:'26px auto 0',textAlign:'left'}}>
-      <div style={{...small,fontWeight:700,letterSpacing:'.06em'}}>CONTINUAR</div>
-      <button type="button" disabled={!libraryBooks[0].storage_path||libraryBusy} onClick={()=>void openLibraryBook(libraryBooks[0])} style={{border:0,background:'transparent',padding:'10px 0 0',width:'100%',textAlign:'left',color:'#17202a'}}>
-       <div style={{fontSize:18,fontWeight:750,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
-       <div style={{...small,marginTop:4}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'Disponível na nuvem':'PDF ainda não enviado'}</div>
-       <div style={{height:5,background:'#e6e0d5',borderRadius:99,marginTop:10,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#17202a'}}/></div>
-      </button>
-     </div>}
+     <div className="pv-welcome-copy" style={{display:'flex',flexDirection:'column',justifyContent:'center',padding:'34px 22px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}><PaperVoiceMark size={54}/><div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:34}}>Paper Voice</div></div>
+      <div style={{fontFamily:'Georgia,serif',fontSize:46,lineHeight:1.04,fontWeight:800,color:'#173d31'}}>Sua leitura, do seu jeito.</div>
+      <div style={{fontFamily:'cursive',fontSize:25,color:'#f36b21',marginTop:8,transform:'rotate(-1deg)'}}>Livros. Ideias. Você.</div>
+      <p style={{fontSize:18,lineHeight:1.6,color:'#6f6b63',maxWidth:520,margin:'20px 0 22px'}}>Leia PDFs, ouça com voz natural, acompanhe seu progresso e mantenha sua biblioteca sincronizada entre seus aparelhos.</p>
+      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+       <button type="button" style={{...primary,padding:'13px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');setAccountOpen(true);}}>{cloudSession?'Minha conta':'Começar agora'}</button>
+       <button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>fileRef.current?.click()}>Abrir um PDF</button>
+       {cloudSession&&<button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha biblioteca{libraryBooks.length?' · '+libraryBooks.length:''}</button>}
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10,marginTop:28,maxWidth:600}}>
+       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Leia e ouça</div><div style={{...small,marginTop:3}}>PDF + voz natural.</div></div>
+       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Continue de onde parou</div><div style={{...small,marginTop:3}}>Progresso sincronizado.</div></div>
+       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Sua biblioteca</div><div style={{...small,marginTop:3}}>Livros e marcadores.</div></div>
+      </div>
+      {cloudSession&&libraryBooks[0]&&<div style={{...card,marginTop:24,maxWidth:620,padding:16}}>
+       <div style={{...small,fontWeight:800,letterSpacing:'.08em',color:'#f36b21'}}>CONTINUAR LENDO</div>
+       <button type="button" onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{border:0,background:'transparent',padding:'10px 0 0',width:'100%',textAlign:'left',color:'#173d31'}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:14,alignItems:'center'}}>
+         <div style={{minWidth:0}}><div style={{fontFamily:'Georgia,serif',fontSize:21,fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div><div style={{...small,marginTop:4}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'}</div></div>
+         <span style={{...primary,padding:'8px 12px',whiteSpace:'nowrap'}}>Continuar</span>
+        </div>
+        <div style={{height:6,background:'#eee4d7',borderRadius:99,marginTop:12,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#f36b21'}}/></div>
+       </button>
+      </div>}
+     </div>
     </div>}
    </div>
    {doc&&!compact&&<div style={{...card,background:'#fff7dc'}}>
