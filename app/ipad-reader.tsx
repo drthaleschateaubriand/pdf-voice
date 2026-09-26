@@ -100,7 +100,7 @@ export default function IpadReader(){
   stop();setError('');setStage('Lendo arquivo…');setSentences([]);setIndex(0);
   let stageName='início';
   try{
-   stageName='carregar PDF.js';const pdfjs=await import('pdfjs-dist');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.min.mjs';
+   stageName='carregar PDF.js';const pdfjs=await import('pdfjs-dist/legacy/build/pdf.mjs');pdfjs.GlobalWorkerOptions.workerSrc='/pdf.worker.legacy.min.mjs';
    stageName='ler arquivo';const bytes=await fileBytes(file);
    stageName='abrir PDF';const next=await pdfjs.getDocument({data:bytes,cMapUrl:'/cmaps/',cMapPacked:true,standardFontDataUrl:'/standard_fonts/'}).promise;
    await docRef.current?.destroy();docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);
