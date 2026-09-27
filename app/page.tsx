@@ -13,6 +13,6 @@ function appleTouch(){
 export default function Home(){
  const [target,setTarget]=useState<'ipad'|'desktop'|null>(null);
  useEffect(()=>{setTarget(appleTouch()?'ipad':'desktop');},[]);
- if(!target)return <main style={{minHeight:'100dvh',display:'grid',placeItems:'center',fontFamily:'system-ui,-apple-system,sans-serif',background:'#f3efe6',color:'#17202a'}}>Carregando leitor…</main>;
- return <Suspense fallback={<main style={{minHeight:'100dvh',display:'grid',placeItems:'center',fontFamily:'system-ui,-apple-system,sans-serif',background:'#f3efe6',color:'#17202a'}}>Carregando leitor…</main>}>{target==='ipad'?<IpadReader/>:<DesktopReader/>}</Suspense>;
+ if(!target)return <main style={{minHeight:'100dvh',display:'grid',placeItems:'center',fontFamily:'system-ui,-apple-system,sans-serif',background:'#F7F3EB',color:'#1B3B2B'}}>Carregando Meu Foco…</main>;
+ return <Suspense fallback={<main style={{minHeight:'100dvh',display:'grid',placeItems:'center',fontFamily:'system-ui,-apple-system,sans-serif',background:'#F7F3EB',color:'#1B3B2B'}}>Carregando Meu Foco…</main>}>{target==='ipad'?<IpadReader/>:<DesktopReader/>}</Suspense>;
 }
