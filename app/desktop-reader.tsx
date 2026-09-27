@@ -57,7 +57,7 @@ function passageNodes(passage:Passage,trimHyphen=false):ReactNode[]{
 type SpeechEngine={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 const fallbackEngine:SpeechEngine={id:'openai',name:'OpenAI',model:'gpt-4o-mini-tts',configured:false,voices:[]};
 export default function DesktopReader(){
- const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('openai'),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
+ const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('openai'),[localVoices,setLocalVoices]=useState<SpeechSynthesisVoice[]>([]),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
  const [cleanMode,setCleanMode]=useState(false);
  const cleanButton=useRef<HTMLButtonElement>(null),exitCleanButton=useRef<HTMLButtonElement>(null);
  function enterClean(){setCleanMode(true);requestAnimationFrame(()=>exitCleanButton.current?.focus());}
@@ -85,8 +85,8 @@ export default function DesktopReader(){
  const [selection,setSelection]=useState<SelectionData|null>(null),[scope,setScope]=useState<Scope>('page');
  const documentWords=useRef<ReadonlySet<string>>(new Set());
  const scopeRef=useRef<Scope>('page'),selectionRef=useRef<SelectionData|null>(null),textLayer=useRef<HTMLDivElement>(null);
- const audio=useRef<HTMLAudioElement|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(({player})=>{player.pause();URL.revokeObjectURL(player.src);player.removeAttribute('src');player.load();},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
- function stop(){epoch.current++;audio.current?.pause();audio.current=null;pauseRequested.current=false;setMode('idle');}
+ const audio=useRef<HTMLAudioElement|null>(null),localUtterance=useRef<SpeechSynthesisUtterance|null>(null),epoch=useRef(0),cache=useRef(new SpeechBuffer<Clip>(({player})=>{player.pause();URL.revokeObjectURL(player.src);player.removeAttribute('src');player.load();},clip=>clip.bytes,AUDIO_BUDGET)),auto=useRef(false),loadId=useRef(0),activeBox=useRef<HTMLDivElement>(null),speedRef=useRef(1),docRef=useRef<PDFDocumentProxy|null>(null),picked=useRef<PickedFile|null>(null),fileInput=useRef<HTMLInputElement>(null),pauseRequested=useRef(false),followGuard=useRef(0);
+ function stop(){epoch.current++;audio.current?.pause();audio.current=null;if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();localUtterance.current=null;pauseRequested.current=false;setMode('idle');}
  async function ensurePageSource(n:number,current:PDFDocumentProxy|null=docRef.current):Promise<PageSource|null>{
   if(!current||n<1||n>current.numPages)return null;
   const existing=pageSources.current.get(n);if(existing)return existing;
@@ -166,12 +166,31 @@ export default function DesktopReader(){
    if(id===loadId.current){const message=e instanceof Error?e.message:'Could not open this PDF.';setError(`Could not open PDF while ${stage}: ${message}`);}
   }finally{if(id===loadId.current)setLoading(false);}
  }
+ useEffect(()=>{
+  if(typeof window==='undefined'||!('speechSynthesis' in window))return;
+  const synth=window.speechSynthesis;
+  const refresh=()=>{
+   const portuguese=synth.getVoices().filter(v=>/^pt(?:-|$)/i.test(v.lang));
+   const localOnly=portuguese.filter(v=>v.localService);
+   const usable=localOnly.length?localOnly:portuguese;
+   setLocalVoices(usable);
+   if(engineId==='local')setVoice(current=>{
+    if(current&&usable.some(v=>v.voiceURI===current))return current;
+    return (usable.find(v=>/^pt-BR$/i.test(v.lang))||usable[0])?.voiceURI||'';
+   });
+  };
+  refresh();synth.addEventListener?.('voiceschanged',refresh);
+  return()=>synth.removeEventListener?.('voiceschanged',refresh);
+ },[engineId]);
  useEffect(()=>{const buffer=cache.current;fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
   let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
-  // OpenAI is the default engine; a saved choice or, failing that, whichever engine has a key wins.
-  const list=d.providers,chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list[0];if(!chosen)return;
-  setEngines(list);setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
- }).catch(()=>{});return()=>{loadId.current++;epoch.current++;audio.current?.pause();buffer.clear();void docRef.current?.destroy();};},[]);
+  const list=d.providers;setEngines(list);
+  if(saved.engine==='local'){setEngineId('local');setVoice(saved.voice||'');return;}
+  const chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list.find(e=>e.id==='openai')||list[0];if(!chosen)return;
+  setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
+ }).catch(()=>{});
+ return()=>{loadId.current++;epoch.current++;audio.current?.pause();if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();localUtterance.current=null;buffer.clear();void docRef.current?.destroy();};
+ },[]);
  useEffect(()=>{if(!doc)return;let cancelled=false;setData(null);void ensurePageData(page,doc).then(next=>{if(cancelled||docRef.current!==doc)return;setData(next);setIndex(0);setMaterialized(m=>Math.max(m,Math.min(doc.numPages,page+5)));if(page<doc.numPages)void ensurePageSource(page+1,doc).catch(()=>{});}).catch(e=>{if(!cancelled)setError('Could not read page '+page+': '+(e instanceof Error?e.message:'unknown error'));});return()=>{cancelled=true;};},[doc,page]);
  useEffect(()=>{if(data&&auto.current){auto.current=false;if(data.passages.length)void speak(0,data.passages,scopeRef.current,epoch.current);else if(doc&&page<doc.numPages){auto.current=true;setPage(page+1);}else setMode('idle');}},[data]);
  useEffect(()=>{(view==='reader'&&scope!=='selection'?readerActive.current:activeBox.current)?.scrollIntoView({block:'nearest',behavior:'smooth'});},[index,mode,view,scope]);
@@ -208,9 +227,18 @@ export default function DesktopReader(){
    for(const [n,section] of sections.current){if(!section)continue;const rect=section.getBoundingClientRect();if(rect.top<=probe&&rect.bottom>probe){if(n!==page)setPage(n);return;}}
   });
  }
- const engine=engines.find(e=>e.id===engineId)||fallbackEngine;
+ const localEngine:SpeechEngine={id:'local',name:'Gratuita ilimitada',model:'Voz do aparelho',configured:true,voices:localVoices.map(v=>({id:v.voiceURI,name:v.name+' · '+v.lang}))};
+ const engine=engineId==='local'?localEngine:engines.find(e=>e.id===engineId)||fallbackEngine;
  function saveSpeech(next:{engine:string;voice:string}){try{localStorage.setItem('paper-voice-speech',JSON.stringify(next));}catch{}}
- function chooseEngine(id:string){const target=engines.find(e=>e.id===id);if(!target)return;stop();auto.current=false;const first=target.voices[0]?.id||'';setEngineId(id);setVoice(first);saveSpeech({engine:id,voice:first});}
+ function chooseEngine(id:string){
+  stop();auto.current=false;
+  if(id==='local'){
+   const first=(localVoices.find(v=>/^pt-BR$/i.test(v.lang))||localVoices[0])?.voiceURI||'';
+   setEngineId('local');setVoice(first);saveSpeech({engine:'local',voice:first});setError('');return;
+  }
+  const target=engines.find(e=>e.id===id);if(!target)return;
+  const first=target.voices[0]?.id||'';setEngineId(id);setVoice(first);saveSpeech({engine:id,voice:first});
+ }
  function chooseVoice(id:string){stop();auto.current=false;setVoice(id);saveSpeech({engine:engineId,voice:id});}
  function prepare(text:string):Promise<Clip>{
   return cache.current.get(engineId+'|'+voice+'|'+text,async()=>{
@@ -229,7 +257,30 @@ export default function DesktopReader(){
   if(!queue[i])return;
   if(continuation===undefined){stop();window.getSelection()?.removeAllRanges();}
   const token=continuation??epoch.current;if(token!==epoch.current)return;
-  setMode('loading');setError('');
+  setError('');
+  if(engineId==='local'){
+   if(typeof window==='undefined'||!('speechSynthesis' in window)){setError('A voz gratuita local não está disponível neste aparelho.');setMode('idle');return;}
+   const synth=window.speechSynthesis;
+   const selectedVoice=localVoices.find(v=>v.voiceURI===voice)||localVoices.find(v=>/^pt-BR$/i.test(v.lang))||localVoices[0];
+   const utterance=new SpeechSynthesisUtterance(queue[i].text);
+   utterance.lang=selectedVoice?.lang||'pt-BR';if(selectedVoice)utterance.voice=selectedVoice;utterance.rate=speedRef.current;
+   localUtterance.current=utterance;
+   utterance.onend=()=>{
+    if(epoch.current!==token)return;
+    const next=nextPlayback(readingScope,i,queue.length,page,doc?.numPages||page);
+    if(next==='passage')void speak(i+1,queue,readingScope,token);
+    else if(next==='page'){auto.current=true;setMode('loading');setPage(page+1);}
+    else{setMode('idle');localUtterance.current=null;setIndex(0);}
+   };
+   utterance.onerror=event=>{
+    if(epoch.current!==token)return;
+    const reason=String(event.error||'');
+    if(reason==='canceled'||reason==='interrupted')return;
+    setError('Falha na voz gratuita local'+(reason?' ('+reason+')':'')+'.');setMode('idle');localUtterance.current=null;
+   };
+   setIndex(i);setMode('playing');synth.speak(utterance);return;
+  }
+  setMode('loading');
   try{
    const current=prepare(queue[i].text);
    const ahead=queue.slice(i+1,i+3).map(p=>prepare(p.text));
@@ -251,6 +302,13 @@ export default function DesktopReader(){
   }catch(e){if(epoch.current===token){pauseRequested.current=false;setError(e instanceof Error?e.message:'Speech failed.');setMode('idle');audio.current=null;}}
  }
  function toggle(){
+  if(engineId==='local'){
+   if(typeof window==='undefined'||!('speechSynthesis' in window)){setError('A voz gratuita local não está disponível neste aparelho.');return;}
+   const synth=window.speechSynthesis;
+   if(mode==='playing'){synth.pause();setMode('paused');return;}
+   if(mode==='paused'&&localUtterance.current){synth.resume();setMode('playing');return;}
+   void speak(index,scopeRef.current==='selection'?selectionRef.current?.passages:data?.passages);return;
+  }
   if(mode==='loading'){pauseRequested.current=!pauseRequested.current;return;}
   if(mode==='playing'){audio.current?.pause();setMode('paused');return;}
   if(mode==='paused'&&audio.current){void audio.current.play().then(()=>setMode('playing')).catch(()=>{setError('Playback blocked. Press play to try again.');setMode('idle');});return;}
@@ -349,11 +407,11 @@ export default function DesktopReader(){
  return <main onDragOver={e=>{e.preventDefault();setDrag(true);}} onDragLeave={e=>{if(!e.currentTarget.contains(e.relatedTarget as Node))setDrag(false);}} onDrop={e=>{e.preventDefault();setDrag(false);dropFile(e.dataTransfer);}} className={[drag?'drag':'',cleanMode?'clean-mode':''].join(' ')}>
  <header><div className="brand"><button className="sidebar-toggle" aria-label={sidebar?'Hide sidebar':'Show sidebar'} aria-expanded={sidebar} aria-controls="reader-settings" onClick={()=>{clearSelection();setSidebar(!sidebar);saveReading({sidebar:!sidebar});}}><PanelLeft size={20}/></button><Headphones/> Paper / voice</div><span>YOUR READING ROOM</span><div className="header-actions"><button ref={cleanButton} disabled={!doc} title="Hide controls for clean reading" onClick={enterClean}><Maximize size={18}/><span>Clean mode</span></button><button className="theme-toggle" type="button" aria-label="Dark mode" aria-pressed={dark} title={dark?'Switch to light mode':'Switch to dark mode'} onClick={toggleTheme}>{dark?<Sun size={18}/>:<Moon size={18}/>}<span>{dark?'Light mode':'Dark mode'}</span></button><button disabled={!doc||loading} title="Reload the PDF from disk to pick up changes" onClick={()=>void reload()}><RefreshCw size={18}/><span>Reload</span></button><button className="upload" style={{margin:0}} onClick={()=>void openPicker()}><Upload size={16}/> Open PDF</button><input ref={fileInput} hidden aria-label="Open PDF" type="file" accept="application/pdf,.pdf" onChange={e=>{if(e.target.files?.[0])void load({file:e.target.files[0]});e.target.value='';}}/></div></header>
  <div className={sidebar?"workspace reader-workspace":"workspace reader-workspace sidebar-hidden"}><aside id="reader-settings" hidden={!sidebar}><p className="eyebrow">VOICE SETTINGS</p>
- <label>Speech engine<select value={engineId} onChange={e=>chooseEngine(e.target.value)}>{engines.map(e=><option key={e.id} value={e.id}>{e.name} · {e.model}</option>)}</select></label>
- <label>Voice<select value={voice} onChange={e=>chooseVoice(e.target.value)}>{engine.voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}</select></label>
- <label>Playback speed<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×{v===1?' · Normal':''}</option>)}</select></label>
- {engine.configured?<div className="status">{engine.name} connected <small>{engine.model} · AI-generated voice</small></div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'sk_car_…'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Used for this session only.</small></label>}
- <p className="status">Your PDF stays on this computer. When you press play, text is sent to {engine.name} for speech, including up to two upcoming passages to keep playback flowing. Clips are kept in memory until the app closes, so passages you have already heard are not generated again.</p>
+ <label>Motor de voz<select value={engineId} onChange={e=>chooseEngine(e.target.value)}><option value="local">Gratuita ilimitada · no aparelho</option>{engines.map(e=><option key={e.id} value={e.id}>{e.id==='openai'?'Premium OpenAI':e.name} · {e.model}</option>)}</select></label>
+ <label>Voz<select value={voice} onChange={e=>chooseVoice(e.target.value)}>{engine.voices.length?engine.voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>):<option value="">{engineId==='local'?'Voz padrão do aparelho':'Nenhuma voz disponível'}</option>}</select></label>
+ <label>Velocidade<select value={speed} onChange={e=>setSpeed(Number(e.target.value))}>{[.75,1,1.25,1.5,1.75,2].map(v=><option key={v} value={v}>{v}×{v===1?' · Normal':''}</option>)}</select></label>
+ {engineId==='local'?<div className="status">Voz gratuita local <small>Sem API · sem cobrança por minuto · síntese feita no aparelho.</small></div>:engine.configured?<div className="status">{engine.name} conectado <small>{engine.model} · voz neural premium</small></div>:<label>{engine.name} API key<input autoComplete="off" type="password" value={keys[engineId]||''} placeholder={engineId==='openai'?'sk-…':'sk_car_…'} onChange={e=>setKeys({...keys,[engineId]:e.target.value})}/><small>Usada somente nesta sessão.</small></label>}
+ <p className="status">{engineId==='local'?'No modo gratuito, o texto é falado pelo próprio dispositivo e não passa pelo servidor de voz.':'Seu PDF permanece neste computador. No modo premium, somente os trechos reproduzidos são enviados ao provedor de voz.'}</p>
  </aside><section className="desk">
  <div className="toolbar"><div className="controls"><FileText size={18}/><strong>{name||'Your document'}</strong></div>{doc&&<div className="controls"><button aria-label="Previous page" disabled={page===1} onClick={()=>navigate(page-1)}><ChevronLeft size={18}/></button><input key={page} aria-label="Page number" className="pageinput" type="number" min={1} max={doc.numPages} defaultValue={page} onBlur={e=>{navigate(Number(e.target.value));e.target.value=String(page);}} onKeyDown={e=>{if(e.key==='Enter')e.currentTarget.blur();}}/><small>of {doc.numPages}</small><button aria-label="Next page" disabled={page===doc.numPages} onClick={()=>navigate(page+1)}><ChevronRight size={18}/></button></div>}</div>
  {doc&&<div className="reader-tools"><div className="view-options" role="group" aria-label="Reading view"><button aria-pressed={view==='pdf'} onClick={()=>changeView('pdf')}><FileText size={16}/>PDF</button><button aria-pressed={view==='reader'} onClick={()=>changeView('reader')}><BookOpen size={16}/>Reading view</button></div>{view==='pdf'?<div className="controls"><button aria-label="Zoom out" disabled={zoom<=.5} onClick={()=>{clearSelection();setZoom(Math.max(.5,zoom-.25));}}><Minus size={16}/></button><button onClick={()=>{clearSelection();setZoom(1);}} title="Fit page width">{zoom===1?'Fit width':`${Math.round(zoom*100)}%`}</button><button aria-label="Zoom in" disabled={zoom>=3} onClick={()=>{clearSelection();setZoom(Math.min(3,zoom+.25));}}><Plus size={16}/></button></div>:<div className="controls"><button aria-label="Smaller text" disabled={fontSize<=18} onClick={()=>changeFont(fontSize-2)}>A−</button><span>{fontSize} px</span><button aria-label="Larger text" disabled={fontSize>=40} onClick={()=>changeFont(fontSize+2)}>A+</button></div>}</div>}
