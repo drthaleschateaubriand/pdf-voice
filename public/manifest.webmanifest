@@ -1,11 +1,11 @@
 {
-  "name": "Paper Voice",
-  "short_name": "Paper Voice",
-  "description": "Leitor de PDF com voz natural, destaques, marcadores e biblioteca sincronizada.",
+  "name": "Meu Foco",
+  "short_name": "Meu Foco",
+  "description": "Leitura guiada por voz para livros e PDFs, com foco, ritmo calmo e biblioteca sincronizada.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f0e6",
-  "theme_color": "#173d31",
+  "background_color": "#F7F3EB",
+  "theme_color": "#1B3B2B",
   "orientation": "any",
   "icons": [
     {
