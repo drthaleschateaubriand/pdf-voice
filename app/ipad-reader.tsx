@@ -169,7 +169,7 @@ export default function IpadReader(){
  const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentPdfFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
- const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null),pageSidebarCurrentRef=useRef<HTMLButtonElement|null>(null);
+ const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
@@ -189,6 +189,11 @@ export default function IpadReader(){
  useEffect(()=>{sentencesRef.current=sentences;},[sentences]);
  useEffect(()=>{indexRef.current=index;},[index]);
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
+ useEffect(()=>{
+  if(!pageSidebarOpen||!doc)return;
+  const timer=window.setTimeout(()=>document.querySelector<HTMLElement>('.mf-page-thumb.current')?.scrollIntoView({block:'nearest'}),80);
+  return()=>window.clearTimeout(timer);
+ },[page,pageSidebarOpen,doc]);
 
  useEffect(()=>{
   try{
