@@ -2,6 +2,7 @@
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
 import {addCloudBookmark,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
+import {splitIpadSpeech} from '../lib/ipad-speech';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
@@ -114,24 +115,7 @@ function isAppleTouch(){
  return /iPad|iPhone|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
 }
 
-function splitSentences(text:string){
- const clean=text.replace(/\s+/g,' ').trim();
- if(!clean)return [];
- const out:string[]=[];let start=0;
- const abbreviations=new Set(['dr','dra','sr','sra','prof','profa','etc','fig','tab','vs','cf','cap','aprox','mín','máx','obs','ref','ed','vol','art','mg','ml','kg','mcg','mmol','mmhg','min','seg','hr','hrs','dl','ui']);
- for(let i=0;i<clean.length;i++){
-  const ch=clean[i];if(ch!=='.'&&ch!=='!'&&ch!=='?')continue;
-  const next=clean[i+1];if(next&&next!==' ')continue;
-  if(ch==='.'){
-   const before=clean.slice(Math.max(0,i-16),i),m=before.match(/([0-9A-Za-zÀ-ÿ]+)$/),word=(m?.[1]||'').toLowerCase();
-   if(word.length===1||abbreviations.has(word))continue;
-  }
-  const sentence=clean.slice(start,i+1).trim();if(sentence)out.push(sentence);
-  start=i+1;while(clean[start]===' ')start++;
- }
- const tail=clean.slice(start).trim();if(tail)out.push(tail);
- return out.filter(s=>s.length>1);
-}
+const splitSentences=splitIpadSpeech;
 
 async function fileBytes(file:File){
  if(typeof file.arrayBuffer==='function')return file.arrayBuffer();
@@ -201,8 +185,8 @@ export default function IpadReader(){
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
- const audioRef=useRef<HTMLAudioElement|null>(null),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0);
- const cache=useRef(new Map<string,string>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
+ const audioRef=useRef<HTMLAudioElement|null>(null),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
+ const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
 
  useEffect(()=>{
   const nav=navigator as Navigator & {standalone?:boolean};
@@ -445,14 +429,15 @@ export default function IpadReader(){
  }
 
  function stop(reset=false){
-  token.current++;playWanted.current=false;
-  const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;}
+  token.current++;clipId.current++;playWanted.current=false;
+  const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;a.removeAttribute('src');try{a.load();}catch{}}
+  audioRef.current=null;activeAudioUrlRef.current='';
   setMode('idle');clearSpokenHighlight();
   if(reset){setIndex(0);indexRef.current=0;}
  }
 
  function stopAndClearAudio(){
-  token.current++;playWanted.current=false;
+  token.current++;clipId.current++;playWanted.current=false;
   for(const controller of audioRequests.current)controller.abort();
   audioRequests.current.clear();
   const a=audioRef.current;
@@ -463,7 +448,7 @@ export default function IpadReader(){
    try{a.load();}catch{}
   }
   for(const url of cache.current.values())URL.revokeObjectURL(url);
-  cache.current.clear();activeAudioUrlRef.current='';
+  cache.current.clear();pendingAudio.current.clear();audioRef.current=null;activeAudioUrlRef.current='';
   clearSpokenHighlight();
   setMode('idle');
   setError('');
@@ -671,7 +656,7 @@ export default function IpadReader(){
   trimTemporaryAudioCache();
  }
 
- async function audioUrl(text:string,forceFresh=false){
+ async function loadAudioUrl(text:string,forceFresh=false){
   const key=voice+'|'+text;
   if(!forceFresh&&cache.current.has(key))return cache.current.get(key)!;
 
@@ -710,6 +695,21 @@ export default function IpadReader(){
   }
  }
 
+ function audioUrl(text:string,forceFresh=false):Promise<string>{
+  const key=voice+'|'+text;
+  if(!forceFresh){
+   const ready=cache.current.get(key);
+   if(ready)return Promise.resolve(ready);
+   const pending=pendingAudio.current.get(key);
+   if(pending)return pending;
+  }
+  const request=loadAudioUrl(text,forceFresh).finally(()=>{
+   if(pendingAudio.current.get(key)===request)pendingAudio.current.delete(key);
+  });
+  if(!forceFresh)pendingAudio.current.set(key,request);
+  return request;
+ }
+
  async function invalidateAudioForText(text:string){
   const key=voice+'|'+text;
   const currentUrl=cache.current.get(key);
@@ -721,17 +721,18 @@ export default function IpadReader(){
  }
 
  function prepareAudioElement(url:string){
-  let audio=audioRef.current;
-  if(!audio){audio=new Audio();audio.preload='auto';audioRef.current=audio;}
-  audio.pause();audio.onended=null;audio.onerror=null;
+  const previous=audioRef.current;
+  if(previous){previous.onended=null;previous.onerror=null;previous.pause();previous.removeAttribute('src');try{previous.load();}catch{}}
+  const audio=new Audio();audio.preload='auto';audioRef.current=audio;
   activeAudioUrlRef.current=url;
-  if(audio.src!==url)audio.src=url;
+  audio.src=url;
   audio.playbackRate=speed;
   return audio;
  }
 
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
   if(!playWanted.current||currentToken!==token.current)return;
+  const currentClip=++clipId.current;
   if(i>=list.length){
    if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
    const d=docRef.current,n=pageRef.current;
@@ -753,27 +754,33 @@ export default function IpadReader(){
    const current=audioUrl(list[i]);
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
    const url=await current;
-   if(!playWanted.current||currentToken!==token.current)return;
+   if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
-   let recovering=false;
-   const onEnded=()=>{if(playWanted.current&&currentToken===token.current)void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);};
+   let recovering=false,advanced=false;
+   const isCurrent=()=>playWanted.current&&currentToken===token.current&&currentClip===clipId.current&&audioRef.current===audio;
+   const onEnded=()=>{
+    if(!isCurrent()||advanced||recovering)return;
+    if(audio.currentTime<0.2||(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration)){void recoverPlayback();return;}
+    advanced=true;
+    void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);
+   };
    const recoverPlayback=async()=>{
-    if(recovering||currentToken!==token.current||!playWanted.current)return;
+    if(recovering||advanced||!isCurrent())return;
     recovering=true;
     setStage('Recuperando áudio…');
     try{
+     audio.onended=null;audio.onerror=null;audio.pause();audio.removeAttribute('src');try{audio.load();}catch{}
+     activeAudioUrlRef.current='';
      await invalidateAudioForText(list[i]);
      const freshUrl=await audioUrl(list[i],true);
-     if(currentToken!==token.current||!playWanted.current)return;
-     audioRef.current?.pause();
-     audioRef.current=null;
+     if(currentToken!==token.current||currentClip!==clipId.current||!playWanted.current)return;
      audio=prepareAudioElement(freshUrl);
      audio.onended=onEnded;
      audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho mesmo após recuperar o áudio.');stop();};
      await audio.play();
-     if(currentToken===token.current){setMode('playing');setStage('Lendo');}
+     if(isCurrent()&&!advanced){setMode('playing');setStage('Lendo');}
     }catch(recoveryError){
-     if(currentToken!==token.current)return;
+     if(currentToken!==token.current||currentClip!==clipId.current)return;
      setError(recoveryError instanceof Error?recoveryError.message:'Falha ao recuperar o áudio.');
      stop();
     }
@@ -783,19 +790,19 @@ export default function IpadReader(){
    try{
     await audio.play();
    }catch(firstError){
-    if(currentToken!==token.current)return;
+    if(currentToken!==token.current||currentClip!==clipId.current)return;
     const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported/i.test(firstError.message));
     if(!unsupported)throw firstError;
     await recoverPlayback();
    }
-   if(currentToken===token.current){setMode('playing');setStage('Lendo');}
+   if(isCurrent()&&!advanced){setMode('playing');setStage('Lendo');}
    if(fileKey.current){
     try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:pageRef.current,index:i}));}catch{}
    }
    if(cloudBookIdRef.current)void saveCloudProgress(cloudBookIdRef.current,pageRef.current,i).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
   }catch(e){
    if(e instanceof DOMException&&e.name==='AbortError')return;
-   if(currentToken!==token.current)return;
+   if(currentToken!==token.current||currentClip!==clipId.current)return;
    setError(e instanceof Error?e.message:'Falha na narração.');
    stop();
   }
