@@ -501,8 +501,9 @@ export default function IpadReader(){
   setCompactControls(true);
  },[]);
 
- async function extractPage(current:PdfDocLike,n:number,restoreIndex=0){
-  setStage('Carregando página '+n+'…');setError('');
+ async function extractPage(current:PdfDocLike,n:number,restoreIndex=0,preservePlayback=false){
+  if(!preservePlayback)setStage('Carregando página '+n+'…');
+  setError('');
   renderTask.current?.cancel();
   textLayerTask.current?.cancel?.();
   clearSelection();
@@ -576,10 +577,12 @@ export default function IpadReader(){
    cursor=endChar;
   }
   sentenceRangesRef.current=mapped;
-  const safeIndex=Math.max(0,Math.min(restoreIndex,Math.max(0,list.length-1)));
+  const requestedIndex=preservePlayback?indexRef.current:restoreIndex;
+  const safeIndex=Math.max(0,Math.min(requestedIndex,Math.max(0,list.length-1)));
   pageRef.current=n;sentencesRef.current=list;indexRef.current=safeIndex;
   setPage(n);setJumpValue(String(n));setSentences(list);setIndex(safeIndex);
-  setStage(list.length?'Página pronta para leitura':'Página sem texto selecionável');
+  if(preservePlayback&&playWanted.current){highlightSentence(safeIndex);setMode('playing');setStage('Lendo');}
+  else setStage(list.length?'Página pronta para leitura':'Página sem texto selecionável');
   if(fileKey.current){
    try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:n,index:safeIndex}));}catch{}
   }
@@ -778,8 +781,29 @@ export default function IpadReader(){
    if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
    const d=docRef.current,n=pageRef.current;
    if(d&&n<d.numPages){
+    const nextPage=n+1;
+    const prefetchKey=(fileKey.current||'pdf')+'|'+voice+'|'+nextPage;
+    const prefetched=pagePrefetch.current.get(prefetchKey);
+    if(prefetched){
+     try{
+      const next=await prefetched;
+      pagePrefetch.current.delete(prefetchKey);
+      if(next.length&&playWanted.current&&currentToken===token.current){
+       clearSpokenHighlight();
+       textDivsRef.current=[];sentenceRangesRef.current=[];
+       pageRef.current=nextPage;sentencesRef.current=next;indexRef.current=0;
+       setPage(nextPage);setJumpValue(String(nextPage));setSentences(next);setIndex(0);
+       void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
+       window.setTimeout(()=>{void extractPage(d,nextPage,-1,true).catch(e=>{
+        if(currentToken!==token.current)return;
+        setError(e instanceof Error?e.message:'Falha ao renderizar a próxima página.');
+       });},0);
+       return;
+      }
+     }catch{}
+    }
     try{
-     const next=await extractPage(d,n+1);
+     const next=await extractPage(d,nextPage);
      if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
     }catch(e){
      setError(e instanceof Error?e.message:'Falha ao avançar página.');
