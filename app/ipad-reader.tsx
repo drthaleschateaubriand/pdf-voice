@@ -190,7 +190,7 @@ export default function IpadReader(){
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
- const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
+ const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),pagePrefetch=useRef(new Map<string,Promise<string[]>>()),fileKey=useRef('');
 
  useEffect(()=>{
   const nav=navigator as Navigator & {standalone?:boolean};
@@ -588,7 +588,7 @@ export default function IpadReader(){
  }
 
  async function openFile(file:File){
-  stop();setError('');setStage('Preparando PDF…');setSentences([]);setIndex(0);
+  stop();pagePrefetch.current.clear();setError('');setStage('Preparando PDF…');setSentences([]);setIndex(0);
   let stageName='início';
   try{
    stageName='carregar PDF.js clássico';
@@ -715,6 +715,25 @@ export default function IpadReader(){
   return request;
  }
 
+ function prefetchNextPageFirstAudio(){
+  const d=docRef.current,currentPage=pageRef.current;
+  if(!d||currentPage>=d.numPages)return;
+  const nextPage=currentPage+1;
+  const key=(fileKey.current||'pdf')+'|'+voice+'|'+nextPage;
+  if(pagePrefetch.current.has(key))return;
+  const request=(async()=>{
+   const pdfPage=await d.getPage(nextPage);
+   const tc=await pdfPage.getTextContent();
+   let text='';
+   for(const item of tc.items)if(item.str)text+=item.str+(item.hasEOL?'\n':' ');
+   const list=splitSentences(text);
+   if(list[0])await audioUrl(list[0]);
+   return list;
+  })();
+  pagePrefetch.current.set(key,request);
+  void request.catch(()=>{pagePrefetch.current.delete(key);});
+ }
+
  async function invalidateAudioForText(text:string){
   const key=voice+'|'+text;
   const currentUrl=cache.current.get(key);
@@ -773,6 +792,7 @@ export default function IpadReader(){
   }
   if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Gerando voz…');
   try{
+   if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
    const current=audioUrl(list[i]);
    if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
    const url=await current;
