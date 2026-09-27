@@ -116,7 +116,7 @@ function BookNavigator({doc,pages,current,jumpValue,setJumpValue,onJump,onSelect
  const visible=Array.from({length:Math.max(0,range.end-range.start+1)},(_,i)=>range.start+i);
  return <aside className="mf-book-nav" aria-label="Navegar no livro" style={{width,flex:'0 0 '+width+'px',minWidth:width,maxWidth:width,height:'68dvh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
   <div className="mf-book-nav-head">
-   <div className="mf-book-nav-title"><span className="mf-book-nav-icon">▤</span><div><strong>Navegar no livro</strong><span>{current} de {pages}</span></div></div>
+   <div className="mf-book-nav-title"><span className="mf-book-nav-icon">▤</span><div><strong>Navegar</strong><span>Livro · {current} de {pages}</span></div></div>
    <button type="button" onClick={onClose} aria-label="Fechar navegação">×</button>
   </div>
   <div className="mf-book-nav-tools">
