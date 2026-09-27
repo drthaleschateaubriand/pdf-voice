@@ -57,7 +57,7 @@ function passageNodes(passage:Passage,trimHyphen=false):ReactNode[]{
 type SpeechEngine={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 const fallbackEngine:SpeechEngine={id:'openai',name:'OpenAI',model:'gpt-4o-mini-tts',configured:false,voices:[]};
 export default function DesktopReader(){
- const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('openai'),[localVoices,setLocalVoices]=useState<SpeechSynthesisVoice[]>([]),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
+ const [doc,setDoc]=useState<PDFDocumentProxy|null>(null),[name,setName]=useState(''),[page,setPage]=useState(1),[data,setData]=useState<PageData|null>(null),[index,setIndex]=useState(0),[mode,setMode]=useState<'idle'|'loading'|'playing'|'paused'>('idle'),[error,setError]=useState(''),[loading,setLoading]=useState(false),[voice,setVoice]=useState(''),[keys,setKeys]=useState<Record<string,string>>({}),[engines,setEngines]=useState<SpeechEngine[]>([]),[engineId,setEngineId]=useState('local'),[localVoices,setLocalVoices]=useState<SpeechSynthesisVoice[]>([]),[speed,setSpeed]=useState(1),[drag,setDrag]=useState(false);
  const [cleanMode,setCleanMode]=useState(false);
  const cleanButton=useRef<HTMLButtonElement>(null),exitCleanButton=useRef<HTMLButtonElement>(null);
  function enterClean(){setCleanMode(true);requestAnimationFrame(()=>exitCleanButton.current?.focus());}
@@ -185,9 +185,10 @@ export default function DesktopReader(){
  useEffect(()=>{const buffer=cache.current;fetch('/api/speech').then(r=>r.json() as Promise<{providers:SpeechEngine[]}>).then(d=>{
   let saved:{engine?:string;voice?:string}={};try{saved=JSON.parse(localStorage.getItem('paper-voice-speech')||'{}');}catch{}
   const list=d.providers;setEngines(list);
-  if(saved.engine==='local'){setEngineId('local');setVoice(saved.voice||'');return;}
-  const chosen=list.find(e=>e.id===saved.engine)||list.find(e=>e.id==='openai'&&e.configured)||list.find(e=>e.configured)||list.find(e=>e.id==='openai')||list[0];if(!chosen)return;
-  setEngineId(chosen.id);setVoice(chosen.voices.some(v=>v.id===saved.voice)?saved.voice!:chosen.voices[0]?.id||'');
+  if(!saved.engine||saved.engine==='local'){setEngineId('local');setVoice(saved.voice||'');setError('');return;}
+  const savedRemote=list.find(e=>e.id===saved.engine);
+  if(savedRemote?.configured){setEngineId(savedRemote.id);setVoice(savedRemote.voices.some(v=>v.id===saved.voice)?saved.voice!:savedRemote.voices[0]?.id||'');return;}
+  setEngineId('local');setVoice('');setError('');
  }).catch(()=>{});
  return()=>{loadId.current++;epoch.current++;audio.current?.pause();if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();localUtterance.current=null;buffer.clear();void docRef.current?.destroy();};
  },[]);
