@@ -219,6 +219,7 @@ export default function IpadReader(){
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const [selectedText,setSelectedText]=useState('');
  const [pageSidebarOpen,setPageSidebarOpen]=useState(false);
+ const [darkMode,setDarkMode]=useState(false);
  const [bookmarks,setBookmarks]=useState<number[]>([]);
  const [highlightEnabled,setHighlightEnabled]=useState(true);
  const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
@@ -248,6 +249,24 @@ export default function IpadReader(){
  useEffect(()=>{sentencesRef.current=sentences;},[sentences]);
  useEffect(()=>{indexRef.current=index;},[index]);
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
+ useEffect(()=>{
+  let dark=false;
+  try{
+   const saved=localStorage.getItem('meu-foco-theme');
+   dark=saved?saved==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }catch{dark=window.matchMedia('(prefers-color-scheme: dark)').matches;}
+  setDarkMode(dark);
+  document.documentElement.dataset.theme=dark?'dark':'light';
+ },[]);
+ function toggleTheme(){
+  const next=!darkMode;
+  setDarkMode(next);
+  document.documentElement.dataset.theme=next?'dark':'light';
+  try{localStorage.setItem('meu-foco-theme',next?'dark':'light');}catch{}
+  const meta=document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if(meta)meta.content=next?'#101713':'#1B3B2B';
+ }
+
 
  useEffect(()=>{
   try{
@@ -1102,7 +1121,7 @@ export default function IpadReader(){
 
  const active=sentences[index]||'';
 
- return <main style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
+ return <main className="mf-app-shell" style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
   {(!compact||!doc)&&<header className="paper-voice-topbar" style={top}>
    <div className="pv-brand" style={{display:'flex',alignItems:'center',gap:10,minWidth:0,flex:'1 1 260px'}}>
     <PaperVoiceMark size={42}/>
@@ -1116,6 +1135,7 @@ export default function IpadReader(){
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
+    <button className="mf-theme-toggle" style={button} type="button" aria-pressed={darkMode} title={darkMode?'Usar modo dia':'Usar modo noite'} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
     <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
     <button style={primary} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
    </nav>
@@ -1141,9 +1161,9 @@ export default function IpadReader(){
    <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'} style={{position:'relative',display:'flex',alignItems:'stretch',gap:12,minWidth:0}}>
     {doc&&pageSidebarOpen&&!compact&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}} onClose={()=>setPageSidebarOpen(false)}/>}
     <div className="mf-reader-main" style={{minWidth:0,flex:1}}>
-   <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
+   <div ref={canvasWrap} className="mf-reader-canvas-wrap" style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
     <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
-     <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
+     <canvas ref={canvasRef} className="mf-pdf-canvas" aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
      <div
       ref={textLayerRef}
       className="textLayer ipad-text-layer"
@@ -1191,13 +1211,13 @@ export default function IpadReader(){
    </div>
     </div>
    </div>
-   {doc&&!compact&&<div style={{...card,background:'#fff7dc'}}>
+   {doc&&!compact&&<div className="mf-current-excerpt" style={{...card,background:'#fff7dc'}}>
     <div style={{...small,marginBottom:5}}>TRECHO ATUAL {sentences.length?index+1:0}/{sentences.length}</div>
     <div style={{fontFamily:'Georgia,serif',fontSize:18,lineHeight:1.55}}>{active||'Esta página não possui texto selecionável. Se for uma página digitalizada, será necessário OCR.'}</div>
    </div>}
   </section>
 
-  {!compact&&<footer style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
+  {!compact&&<footer className="mf-reader-footer" style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
    <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:8}}>
     <span style={{...small,fontWeight:600}}>Ir para página</span>
     <input
@@ -1355,7 +1375,7 @@ export default function IpadReader(){
      {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
     </select>}
    </div>
-   <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
+   <form className="mf-compact-controls" onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
     <input
      aria-label="Número da página"
@@ -1372,6 +1392,7 @@ export default function IpadReader(){
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
+    <button type="button" className="mf-theme-toggle" style={{...button,padding:'7px 9px'}} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
    </form>
