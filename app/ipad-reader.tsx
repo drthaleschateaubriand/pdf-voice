@@ -44,6 +44,35 @@ function PaperVoiceMark({size=42}:{size?:number}){
  </svg>;
 }
 
+function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;current:boolean;onSelect:(page:number)=>void}){
+ const canvas=useRef<HTMLCanvasElement>(null),host=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{
+  const el=host.current;if(!el)return;
+  let cancelled=false,task:PdfRenderTask|null=null;
+  const render=async()=>{
+   if(cancelled||!canvas.current)return;
+   try{
+    const pdfPage=await doc.getPage(page);
+    const base=pdfPage.getViewport({scale:1});
+    const cssWidth=132,scale=cssWidth/Math.max(1,base.width),viewport=pdfPage.getViewport({scale});
+    const dpr=Math.min(2,window.devicePixelRatio||1),target=canvas.current,ctx=target.getContext('2d');
+    if(!ctx)return;
+    target.width=Math.max(1,Math.round(viewport.width*dpr));target.height=Math.max(1,Math.round(viewport.height*dpr));
+    target.style.width=Math.round(viewport.width)+'px';target.style.height=Math.round(viewport.height)+'px';
+    task=pdfPage.render({canvasContext:ctx,viewport,transform:dpr!==1?[dpr,0,0,dpr,0,0]:undefined});
+    await task.promise;
+   }catch{}
+  };
+  if(typeof IntersectionObserver==='undefined'){void render();return()=>{cancelled=true;task?.cancel();};}
+  const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();void render();}},{root:el.closest('.mf-page-sidebar-scroll'),rootMargin:'500px 0px'});
+  observer.observe(el);
+  return()=>{cancelled=true;observer.disconnect();task?.cancel();};
+ },[doc,page]);
+ return <button ref={host} type="button" className={current?'mf-page-thumb current':'mf-page-thumb'} aria-label={'Ir para página '+page} aria-current={current?'page':undefined} onClick={()=>onSelect(page)}>
+  <span className="mf-page-thumb-canvas"><canvas ref={canvas}/></span><span className="mf-page-thumb-number">{page}</span>
+ </button>;
+}
+
 function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
  const palettes=[
   ['#1B3B2B','#f0a25f','#F7F3EB'],
@@ -130,6 +159,7 @@ export default function IpadReader(){
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const [selectedText,setSelectedText]=useState('');
+ const [pageSidebarOpen,setPageSidebarOpen]=useState(false);
  const [bookmarks,setBookmarks]=useState<number[]>([]);
  const [highlightEnabled,setHighlightEnabled]=useState(true);
  const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
@@ -139,7 +169,7 @@ export default function IpadReader(){
  const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentPdfFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
- const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
+ const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null),pageSidebarCurrentRef=useRef<HTMLButtonElement|null>(null);
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
@@ -1023,6 +1053,7 @@ export default function IpadReader(){
     </div>
    </div>
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
+    {doc&&<button style={button} aria-pressed={pageSidebarOpen} onClick={()=>setPageSidebarOpen(v=>!v)}>{pageSidebarOpen?'Ocultar páginas':'Páginas'}</button>}
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
@@ -1048,6 +1079,15 @@ export default function IpadReader(){
 
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
+   <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'}>
+    {doc&&pageSidebarOpen&&!compact&&<aside className="mf-page-sidebar" aria-label="Miniaturas das páginas">
+     <div className="mf-page-sidebar-head"><div><strong>Páginas</strong><span>{page} de {pages}</span></div><button type="button" onClick={()=>setPageSidebarOpen(false)} aria-label="Fechar páginas">×</button></div>
+     <div className="mf-page-sidebar-actions"><button type="button" onClick={()=>void goPage(1)}>⌂ Início</button><form onSubmit={e=>{e.preventDefault();jumpToPage();}}><input aria-label="Ir para página" inputMode="numeric" pattern="[0-9]*" value={jumpValue} onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}/><button type="submit">Ir</button></form></div>
+     <div className="mf-page-sidebar-scroll">
+      {Array.from({length:pages},(_,i)=>i+1).map(n=><PageThumbnail key={n} doc={doc} page={n} current={n===page} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}}/>)}
+     </div>
+    </aside>}
+    <div className="mf-reader-main">
    <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
     <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
      <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
@@ -1095,6 +1135,8 @@ export default function IpadReader(){
       <div className="pv-entry-note">Leitura guiada, destaque sincronizado e biblioteca acolhedora.</div>
      </section>
     </div>}
+   </div>
+    </div>
    </div>
    {doc&&!compact&&<div style={{...card,background:'#fff7dc'}}>
     <div style={{...small,marginBottom:5}}>TRECHO ATUAL {sentences.length?index+1:0}/{sentences.length}</div>
@@ -1276,6 +1318,7 @@ export default function IpadReader(){
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Páginas</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
    </form>
