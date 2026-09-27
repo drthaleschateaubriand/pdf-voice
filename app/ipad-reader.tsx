@@ -218,11 +218,6 @@ export default function IpadReader(){
  useEffect(()=>{sentencesRef.current=sentences;},[sentences]);
  useEffect(()=>{indexRef.current=index;},[index]);
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
- useEffect(()=>{
-  if(!pageSidebarOpen||!doc)return;
-  const timer=window.setTimeout(()=>document.querySelector<HTMLElement>('.mf-page-thumb.current')?.scrollIntoView({block:'nearest'}),80);
-  return()=>window.clearTimeout(timer);
- },[page,pageSidebarOpen,doc]);
 
  useEffect(()=>{
   try{
@@ -1114,7 +1109,7 @@ export default function IpadReader(){
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
    <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'} style={{position:'relative',display:'flex',alignItems:'stretch',gap:12,minWidth:0}}>
-    {doc&&pageSidebarOpen&&!compact&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);}} onClose={()=>setPageSidebarOpen(false)}/>}
+    {doc&&pageSidebarOpen&&!compact&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}} onClose={()=>setPageSidebarOpen(false)}/>}
     <div className="mf-reader-main" style={{minWidth:0,flex:1}}>
    <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
     <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
