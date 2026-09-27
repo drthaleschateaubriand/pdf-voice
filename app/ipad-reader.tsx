@@ -44,7 +44,7 @@ function PaperVoiceMark({size=42}:{size?:number}){
  </svg>;
 }
 
-function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;current:boolean;onSelect:(page:number)=>void}){
+function PageThumbnail({doc,page,current,onSelect,width}:{doc:PdfDocLike;page:number;current:boolean;onSelect:(page:number)=>void;width:number}){
  const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
   let cancelled=false,task:PdfRenderTask|null=null;
@@ -53,7 +53,7 @@ function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;c
     const pdfPage=await doc.getPage(page);
     if(cancelled||!canvas.current)return;
     const base=pdfPage.getViewport({scale:1});
-    const cssWidth=128,scale=cssWidth/Math.max(1,base.width),viewport=pdfPage.getViewport({scale});
+    const cssWidth=Math.max(96,Math.min(220,width)),scale=cssWidth/Math.max(1,base.width),viewport=pdfPage.getViewport({scale});
     const dpr=Math.min(2,window.devicePixelRatio||1),target=canvas.current,ctx=target.getContext('2d');
     if(!ctx)return;
     target.width=Math.max(1,Math.round(viewport.width*dpr));target.height=Math.max(1,Math.round(viewport.height*dpr));
@@ -63,22 +63,31 @@ function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;c
    }catch{}
   })();
   return()=>{cancelled=true;task?.cancel();};
- },[doc,page]);
- return <button type="button" className={current?'mf-page-thumb current':'mf-page-thumb'} aria-label={'Ir para página '+page} aria-current={current?'page':undefined} onClick={()=>onSelect(page)}>
-  <span className="mf-page-thumb-canvas"><canvas ref={canvas}/></span>
+ },[doc,page,width]);
+ return <button type="button" className={current?'mf-page-thumb current':'mf-page-thumb'} aria-label={'Ir para página '+page} aria-current={current?'page':undefined} onClick={()=>onSelect(page)} style={{width:width+14}}>
+  <span className="mf-page-thumb-canvas" style={{width}}><canvas ref={canvas}/></span>
   <span className="mf-page-thumb-number">{page}</span>
  </button>;
 }
 
 function BookNavigator({doc,pages,current,jumpValue,setJumpValue,onJump,onSelect,onClose}:{doc:PdfDocLike;pages:number;current:number;jumpValue:string;setJumpValue:(value:string)=>void;onJump:()=>void;onSelect:(page:number)=>void;onClose:()=>void}){
- const ITEM=184,BUFFER=4,scrollRef=useRef<HTMLDivElement>(null);
+ const MIN_WIDTH=142,MAX_WIDTH=310,DEFAULT_WIDTH=178,BUFFER=4;
+ const [width,setWidth]=useState(DEFAULT_WIDTH),widthRef=useRef(DEFAULT_WIDTH),resizeRef=useRef<{x:number;width:number}|null>(null),scrollRef=useRef<HTMLDivElement>(null);
+ const thumbWidth=Math.max(104,Math.min(236,width-34)),ITEM=Math.max(160,Math.round(thumbWidth*1.42+28));
  const [range,setRange]=useState({start:1,end:Math.min(pages,12)});
+ useEffect(()=>{
+  try{
+   const saved=Number(localStorage.getItem('meu-foco-book-nav-width'));
+   if(Number.isFinite(saved)&&saved>=MIN_WIDTH&&saved<=MAX_WIDTH){widthRef.current=saved;setWidth(saved);}
+  }catch{}
+ },[]);
+ useEffect(()=>{widthRef.current=width;},[width]);
  const recalc=useCallback(()=>{
   const el=scrollRef.current;if(!el)return;
   const first=Math.max(1,Math.floor(el.scrollTop/ITEM)+1-BUFFER);
   const last=Math.min(pages,Math.ceil((el.scrollTop+el.clientHeight)/ITEM)+BUFFER);
   setRange(r=>r.start===first&&r.end===last?r:{start:first,end:last});
- },[pages]);
+ },[ITEM,pages]);
  useEffect(()=>{recalc();},[recalc]);
  useEffect(()=>{
   const el=scrollRef.current;if(!el||!pages)return;
@@ -86,19 +95,40 @@ function BookNavigator({doc,pages,current,jumpValue,setJumpValue,onJump,onSelect
   el.scrollTo({top:target,behavior:'smooth'});
   const timer=window.setTimeout(recalc,220);
   return()=>window.clearTimeout(timer);
- },[current,pages,recalc]);
+ },[current,pages,ITEM,recalc]);
+ useEffect(()=>{
+  const move=(event:PointerEvent)=>{
+   const resize=resizeRef.current;if(!resize)return;
+   const next=Math.max(MIN_WIDTH,Math.min(MAX_WIDTH,resize.width+(event.clientX-resize.x)));
+   widthRef.current=next;setWidth(next);
+  };
+  const stopResize=()=>{
+   if(!resizeRef.current)return;
+   resizeRef.current=null;
+   document.documentElement.classList.remove('mf-resizing-book-nav');
+   try{localStorage.setItem('meu-foco-book-nav-width',String(Math.round(widthRef.current)));}catch{}
+  };
+  window.addEventListener('pointermove',move);
+  window.addEventListener('pointerup',stopResize);
+  window.addEventListener('pointercancel',stopResize);
+  return()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',stopResize);window.removeEventListener('pointercancel',stopResize);document.documentElement.classList.remove('mf-resizing-book-nav');};
+ },[]);
  const visible=Array.from({length:Math.max(0,range.end-range.start+1)},(_,i)=>range.start+i);
- return <aside className="mf-book-nav" aria-label="Navegar no livro" style={{width:190,flex:'0 0 190px',minWidth:190,height:'68dvh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
-  <div className="mf-book-nav-head"><div><strong>Navegar no livro</strong><span>Página {current} de {pages}</span></div><button type="button" onClick={onClose} aria-label="Fechar navegação">×</button></div>
+ return <aside className="mf-book-nav" aria-label="Navegar no livro" style={{width,flex:'0 0 '+width+'px',minWidth:width,maxWidth:width,height:'68dvh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
+  <div className="mf-book-nav-head">
+   <div className="mf-book-nav-title"><span className="mf-book-nav-icon">▤</span><div><strong>Navegar no livro</strong><span>{current} de {pages}</span></div></div>
+   <button type="button" onClick={onClose} aria-label="Fechar navegação">×</button>
+  </div>
   <div className="mf-book-nav-tools">
-   <button type="button" onClick={()=>onSelect(1)}>Capa / início</button>
-   <form onSubmit={e=>{e.preventDefault();onJump();}}><input aria-label="Ir para página" inputMode="numeric" pattern="[0-9]*" value={jumpValue} onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}/><button type="submit">Ir</button></form>
+   <button className="mf-book-nav-home" type="button" onClick={()=>onSelect(1)}>⌂ <span>Início</span></button>
+   <form onSubmit={e=>{e.preventDefault();onJump();}}><label htmlFor="mf-book-page-jump">Página</label><input id="mf-book-page-jump" aria-label="Ir para página" inputMode="numeric" pattern="[0-9]*" value={jumpValue} onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}/><button type="submit">Ir</button></form>
   </div>
   <div ref={scrollRef} className="mf-book-nav-scroll" onScroll={recalc} style={{flex:1,minHeight:0,overflowY:'auto',overflowX:'hidden',position:'relative'}}>
    <div style={{height:pages*ITEM,position:'relative'}}>
-    {visible.map(n=><div key={n} style={{position:'absolute',left:0,right:0,top:(n-1)*ITEM,height:ITEM,display:'grid',placeItems:'start center'}}><PageThumbnail doc={doc} page={n} current={n===current} onSelect={onSelect}/></div>)}
+    {visible.map(n=><div key={n} style={{position:'absolute',left:0,right:0,top:(n-1)*ITEM,height:ITEM,display:'grid',placeItems:'start center'}}><PageThumbnail doc={doc} page={n} current={n===current} onSelect={onSelect} width={thumbWidth}/></div>)}
    </div>
   </div>
+  <div className="mf-book-nav-resizer" role="separator" aria-orientation="vertical" aria-label="Redimensionar navegação" title="Arraste para ajustar a largura" onPointerDown={e=>{if(window.matchMedia('(pointer: coarse)').matches)return;resizeRef.current={x:e.clientX,width:widthRef.current};document.documentElement.classList.add('mf-resizing-book-nav');e.preventDefault();}}><span/></div>
  </aside>;
 }
 
