@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/local-unlimited-voice]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -19,4 +19,3 @@ jobs:
       - run: npm test
       - run: npm run lint
       - run: npm run build
-        if: always()
