@@ -563,3 +563,184 @@ body{background:#F7F3EB;color:#1b1b1c}
  .mf-desktop-empty{grid-template-columns:1fr!important;padding:32px!important}
  .mf-empty-title{font-size:54px!important}
 }
+
+
+/* Meu Foco page thumbnail navigation */
+.mf-reader-layout{
+ position:relative;
+ display:flex;
+ gap:12px;
+ min-width:0;
+}
+.mf-reader-main{
+ min-width:0;
+ flex:1;
+}
+.mf-page-sidebar{
+ width:188px;
+ flex:0 0 188px;
+ min-height:58dvh;
+ height:68dvh;
+ display:flex;
+ flex-direction:column;
+ overflow:hidden;
+ border:1px solid #E5DED2;
+ border-radius:22px;
+ background:#F1E8DD;
+ box-shadow:0 8px 28px -16px rgba(60,48,30,.24);
+}
+.mf-page-sidebar-head{
+ display:flex;
+ align-items:center;
+ justify-content:space-between;
+ gap:10px;
+ padding:12px 12px 8px;
+ border-bottom:1px solid rgba(120,100,78,.12);
+}
+.mf-page-sidebar-head>div{
+ display:flex;
+ flex-direction:column;
+ gap:2px;
+}
+.mf-page-sidebar-head strong{
+ font-family:'Merriweather',Georgia,serif;
+ color:#1B3B2B;
+ font-size:16px;
+}
+.mf-page-sidebar-head span{
+ font-size:10px;
+ color:#756E67;
+}
+.mf-page-sidebar-head button{
+ width:30px;height:30px;padding:0;border-radius:50%!important;
+ font-size:20px;line-height:1;
+}
+.mf-page-sidebar-actions{
+ padding:8px 10px 10px;
+ display:grid;
+ gap:7px;
+ border-bottom:1px solid rgba(120,100,78,.12);
+}
+.mf-page-sidebar-actions>button{
+ width:100%;
+ padding:7px 10px!important;
+ font-size:12px!important;
+}
+.mf-page-sidebar-actions form{
+ display:grid;
+ grid-template-columns:1fr auto;
+ gap:6px;
+}
+.mf-page-sidebar-actions input{
+ min-width:0;
+ width:100%;
+ border:1px solid #D9CFC1;
+ border-radius:12px;
+ background:#fff;
+ color:#1B3B2B;
+ padding:7px 8px;
+ text-align:center;
+ font:600 12px 'Plus Jakarta Sans',sans-serif;
+}
+.mf-page-sidebar-actions form button{
+ padding:7px 10px!important;
+ font-size:12px!important;
+}
+.mf-page-sidebar-scroll{
+ flex:1;
+ overflow:auto;
+ padding:10px 12px 18px;
+ display:flex;
+ flex-direction:column;
+ align-items:center;
+ gap:10px;
+ overscroll-behavior:contain;
+ scrollbar-gutter:stable;
+}
+.mf-page-thumb{
+ width:148px;
+ padding:7px 7px 6px!important;
+ display:flex!important;
+ flex-direction:column!important;
+ align-items:center!important;
+ gap:5px!important;
+ border:2px solid transparent!important;
+ border-radius:14px!important;
+ background:transparent!important;
+ box-shadow:none!important;
+ color:#5F5952!important;
+ scroll-margin:70px 0;
+}
+.mf-page-thumb:hover{
+ background:rgba(255,255,255,.6)!important;
+}
+.mf-page-thumb.current{
+ border-color:#2D6CDF!important;
+ background:rgba(255,255,255,.88)!important;
+ box-shadow:0 4px 14px -8px rgba(45,108,223,.45)!important;
+}
+.mf-page-thumb-canvas{
+ width:134px;
+ min-height:80px;
+ display:grid;
+ place-items:center;
+ overflow:hidden;
+ border-radius:7px;
+ background:#fff;
+ box-shadow:0 2px 8px rgba(40,35,30,.14);
+}
+.mf-page-thumb-canvas canvas{
+ display:block;
+ max-width:132px;
+ height:auto;
+ background:#fff;
+}
+.mf-page-thumb-number{
+ font-size:11px;
+ font-weight:700;
+ color:#6E675F;
+}
+.mf-page-thumb.current .mf-page-thumb-number{
+ color:#1E58B4;
+}
+@media(max-width:850px){
+ .mf-reader-layout{display:block}
+ .mf-page-sidebar{
+  position:absolute;
+  z-index:35;
+  left:4px;
+  top:4px;
+  bottom:4px;
+  height:auto;
+  min-height:0;
+  width:min(210px,72vw);
+  flex-basis:auto;
+  border-radius:20px;
+  box-shadow:12px 0 36px rgba(31,27,22,.24);
+ }
+ .mf-page-thumb{width:154px}
+ .mf-page-thumb-canvas{width:140px}
+}
+[data-theme="dark"] .mf-page-sidebar{
+ background:#1B2822;
+ border-color:#34473D;
+}
+[data-theme="dark"] .mf-page-sidebar-head{
+ border-color:#34473D;
+}
+[data-theme="dark"] .mf-page-sidebar-head strong{
+ color:#EEF3EF;
+}
+[data-theme="dark"] .mf-page-sidebar-head span,
+[data-theme="dark"] .mf-page-thumb-number{
+ color:#AEBAB2;
+}
+[data-theme="dark"] .mf-page-sidebar-actions input{
+ background:#16221C;
+ border-color:#405348;
+ color:#EEF3EF;
+}
+[data-theme="dark"] .mf-page-thumb.current{
+ background:#22332A!important;
+ border-color:#7AA6F4!important;
+}
