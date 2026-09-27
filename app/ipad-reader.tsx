@@ -26,21 +26,21 @@ type PdfJsClassic={
 const PDFJS_VERSION='3.11.174';
 const PDFJS_BASE='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/'+PDFJS_VERSION+'/';
 
-const shell:CSSProperties={minHeight:'100dvh',background:'#f6f0e6',color:'#173d31',fontFamily:'Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',display:'flex',flexDirection:'column'};
-const top:CSSProperties={position:'sticky',top:0,zIndex:10,background:'rgba(255,252,245,.96)',backdropFilter:'blur(18px)',borderBottom:'1px solid #e7dccd',padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px',paddingLeft:'calc(16px + env(safe-area-inset-left, 0px))',paddingRight:'calc(16px + env(safe-area-inset-right, 0px))',display:'flex',alignItems:'center',gap:10};
-const button:CSSProperties={border:'1px solid #ddcfbd',background:'#fffaf2',borderRadius:14,padding:'10px 13px',fontSize:15,color:'#173d31',boxShadow:'0 2px 10px rgba(68,45,20,.04)'};
-const primary:CSSProperties={...button,background:'#173d31',color:'#fffaf2',borderColor:'#173d31',fontWeight:700};
-const card:CSSProperties={background:'#fffaf2',border:'1px solid #e7dccd',borderRadius:18,padding:14,boxShadow:'0 8px 28px rgba(74,49,24,.06)'};
-const small:CSSProperties={fontSize:12,color:'#7c786f'};
+const shell:CSSProperties={minHeight:'100dvh',background:'#F7F3EB',color:'#1B1B1C',fontFamily:'"Plus Jakarta Sans",Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',display:'flex',flexDirection:'column'};
+const top:CSSProperties={position:'sticky',top:0,zIndex:10,background:'rgba(247,243,235,.94)',backdropFilter:'blur(18px)',borderBottom:'1px solid #E5DED2',padding:'calc(10px + env(safe-area-inset-top, 0px)) 16px 10px',paddingLeft:'calc(16px + env(safe-area-inset-left, 0px))',paddingRight:'calc(16px + env(safe-area-inset-right, 0px))',display:'flex',alignItems:'center',gap:10};
+const button:CSSProperties={border:'1px solid #E5DED2',background:'#FFFFFF',borderRadius:999,padding:'10px 15px',fontSize:15,color:'#1B3B2B',boxShadow:'0 4px 20px -8px rgba(60,48,30,.18)'};
+const primary:CSSProperties={...button,background:'#1B3B2B',color:'#FFFFFF',borderColor:'#1B3B2B',fontWeight:700};
+const card:CSSProperties={background:'#FFFFFF',border:'1px solid #E5DED2',borderRadius:24,padding:14,boxShadow:'0 4px 20px -2px rgba(60,48,30,.05)'};
+const small:CSSProperties={fontSize:12,color:'#635F59'};
 
 function PaperVoiceMark({size=42}:{size?:number}){
  return <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" style={{display:'block',flex:'0 0 auto'}}>
-  <rect x="3" y="3" width="94" height="94" rx="24" fill="#173d31"/>
-  <path d="M22 33c12 0 20 4 28 12v34c-8-7-17-10-28-10V33Z" fill="#fff4df"/>
-  <path d="M78 33c-12 0-20 4-28 12v34c8-7 17-10 28-10V33Z" fill="#fff4df"/>
+  <rect x="3" y="3" width="94" height="94" rx="24" fill="#1B3B2B"/>
+  <path d="M22 33c12 0 20 4 28 12v34c-8-7-17-10-28-10V33Z" fill="#F7F3EB"/>
+  <path d="M78 33c-12 0-20 4-28 12v34c8-7 17-10 28-10V33Z" fill="#F7F3EB"/>
   <path d="M50 45v34" stroke="#e9dcc7" strokeWidth="2"/>
-  <path d="M53 30c8-12 15-17 23-18-1 9-7 17-19 23Z" fill="#f36b21"/>
-  <path d="M51 31c-4-11-3-18 1-24 8 5 12 12 10 23Z" fill="#ff8a35"/>
+  <path d="M53 30c8-12 15-17 23-18-1 9-7 17-19 23Z" fill="#E76F3B"/>
+  <path d="M51 31c-4-11-3-18 1-24 8 5 12 12 10 23Z" fill="#FD7F4A"/>
  </svg>;
 }
 
@@ -78,24 +78,24 @@ function ReadingNookIllustration(){
   <path d="M89 460c8-24 26-28 38-8-11 4-22 7-38 8Z" fill="#a56a47"/>
   <path d="M200 501c26-7 51-5 73 9-25 18-58 22-85 4Z" fill="#bd7f50"/>
   <rect x="382" y="420" width="88" height="70" rx="12" fill="#f2e5d3"/>
-  <path d="M400 442h48M400 456h38" stroke="#173d31" strokeWidth="4" strokeLinecap="round"/>
+  <path d="M400 442h48M400 456h38" stroke="#1B3B2B" strokeWidth="4" strokeLinecap="round"/>
   <g fill="#285943">
    <ellipse cx="440" cy="340" rx="18" ry="42" transform="rotate(-34 440 340)"/>
    <ellipse cx="468" cy="315" rx="16" ry="38" transform="rotate(24 468 315)"/>
   </g>
   <rect x="438" y="365" width="42" height="68" rx="6" fill="#b76d39"/>
-  <text x="58" y="335" fill="#173d31" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 335)">Boas leituras</text>
-  <text x="58" y="360" fill="#173d31" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 360)">inspiram dias melhores.</text>
-  <path d="M55 372c38 8 74 4 105-8" fill="none" stroke="#f36b21" strokeWidth="5" strokeLinecap="round"/>
+  <text x="58" y="335" fill="#1B3B2B" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 335)">Boas leituras</text>
+  <text x="58" y="360" fill="#1B3B2B" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 360)">inspiram dias melhores.</text>
+  <path d="M55 372c38 8 74 4 105-8" fill="none" stroke="#E76F3B" strokeWidth="5" strokeLinecap="round"/>
  </svg>;
 }
 
 function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
  const palettes=[
-  ['#173d31','#f0a25f','#fff4df'],
-  ['#e8d8bf','#c66c3e','#173d31'],
-  ['#d8e3dd','#8fae9c','#173d31'],
-  ['#f3d6bb','#f36b21','#603b2a'],
+  ['#1B3B2B','#f0a25f','#F7F3EB'],
+  ['#e8d8bf','#c66c3e','#1B3B2B'],
+  ['#d8e3dd','#8fae9c','#1B3B2B'],
+  ['#f3d6bb','#E76F3B','#603b2a'],
   ['#d9d3c6','#2d4d43','#fff8ed'],
   ['#eedfcb','#c08854','#4d3425']
  ];
@@ -104,8 +104,8 @@ function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:nu
  return <div style={{height:compact?128:190,borderRadius:14,background:`linear-gradient(155deg,${p[0]},${p[2]})`,boxShadow:'0 10px 24px rgba(64,43,24,.15)',position:'relative',overflow:'hidden',padding:compact?12:16,boxSizing:'border-box',display:'flex',flexDirection:'column',justifyContent:'space-between'}}>
   <div style={{position:'absolute',right:-18,top:-18,width:84,height:84,borderRadius:'50%',background:p[1],opacity:.8}}/>
   <div style={{position:'absolute',left:-18,bottom:18,width:110,height:46,borderRadius:'50%',background:p[1],opacity:.22,transform:'rotate(-12deg)'}}/>
-  <div style={{fontFamily:'Georgia,serif',fontSize:compact?15:20,lineHeight:1.05,fontWeight:800,color:p[2]==='#fff4df'||p[2]==='#fff8ed'?p[2]:p[2],maxWidth:'86%',position:'relative',zIndex:1}}>{title}</div>
-  <div style={{fontSize:10,fontWeight:800,letterSpacing:'.12em',textTransform:'uppercase',color:p[2],position:'relative',zIndex:1}}>Paper Voice</div>
+  <div style={{fontFamily:'Georgia,serif',fontSize:compact?15:20,lineHeight:1.05,fontWeight:800,color:p[2]==='#F7F3EB'||p[2]==='#fff8ed'?p[2]:p[2],maxWidth:'86%',position:'relative',zIndex:1}}>{title}</div>
+  <div style={{fontSize:10,fontWeight:800,letterSpacing:'.12em',textTransform:'uppercase',color:p[2],position:'relative',zIndex:1}}>Meu Foco</div>
  </div>;
 }
 
@@ -465,7 +465,7 @@ export default function IpadReader(){
  }
 
  async function clearSavedAudioCache(){
-  const ok=typeof window==='undefined'||window.confirm('Apagar todo o áudio salvo neste aparelho? O Paper Voice poderá gerar esses trechos novamente quando necessário.');
+  const ok=typeof window==='undefined'||window.confirm('Apagar todo o áudio salvo neste aparelho? O Meu Foco poderá gerar esses trechos novamente quando necessário.');
   if(!ok)return;
   stopAndClearAudio();
   await clearPersistentAudioCache();
@@ -1064,8 +1064,8 @@ export default function IpadReader(){
    <div className="pv-brand" style={{display:'flex',alignItems:'center',gap:10,minWidth:0,flex:'1 1 260px'}}>
     <PaperVoiceMark size={42}/>
     <div style={{minWidth:0}}>
-     <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:24,lineHeight:1,color:'#173d31'}}>Paper Voice</div>
-     <div style={{...small,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pages?name+' · pág. '+page+' de '+pages:'Livros. Ideias. Você.'}</div>
+     <div style={{fontFamily:'Merriweather,Georgia,serif',fontWeight:800,fontSize:24,lineHeight:1,color:'#1B3B2B'}}>Meu <span style={{color:'#E76F3B'}}>Foco</span></div>
+     <div style={{...small,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pages?name+' · pág. '+page+' de '+pages:'Leitura & Atenção Serena'}</div>
     </div>
    </div>
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
@@ -1105,36 +1105,41 @@ export default function IpadReader(){
       onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
      />
     </div>
-    {!doc&&<div className="pv-welcome" style={{width:'100%',boxSizing:'border-box',maxWidth:1180,margin:'0 auto',padding:'22px'}}>
-     <div className="pv-welcome-art" style={{position:'relative',overflow:'hidden',borderRadius:28,minHeight:520,boxShadow:'0 20px 55px rgba(67,45,24,.12)'}}>
-      <ReadingNookIllustration/>
-     </div>
-     <div className="pv-welcome-copy" style={{display:'flex',flexDirection:'column',justifyContent:'center',padding:'34px 22px'}}>
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}><PaperVoiceMark size={54}/><div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:34}}>Paper Voice</div></div>
-      <div style={{fontFamily:'Georgia,serif',fontSize:46,lineHeight:1.04,fontWeight:800,color:'#173d31'}}>Sua leitura, do seu jeito.</div>
-      <div style={{fontFamily:'cursive',fontSize:25,color:'#f36b21',marginTop:8,transform:'rotate(-1deg)'}}>Livros. Ideias. Você.</div>
-      <p style={{fontSize:18,lineHeight:1.6,color:'#6f6b63',maxWidth:520,margin:'20px 0 22px'}}>Leia PDFs, ouça com voz natural, acompanhe seu progresso e mantenha sua biblioteca sincronizada entre seus aparelhos.</p>
-      <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
-       <button type="button" style={{...primary,padding:'13px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?'Minha conta':'Começar agora'}</button>
-       <button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>fileRef.current?.click()}>Abrir um PDF</button>
-       {cloudSession&&<button type="button" style={{...button,padding:'13px 20px',fontSize:16}} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha biblioteca{libraryBooks.length?' · '+libraryBooks.length:''}</button>}
+    {!doc&&<div className="pv-welcome pv-meu-foco-welcome" style={{width:'100%',boxSizing:'border-box',maxWidth:1220,margin:'0 auto',padding:'clamp(18px,3vw,34px)'}}>
+     <section className="pv-focus-intro">
+      <div className="pv-focus-badge"><span>●</span> LEITURA SERENA &amp; APOIO AO TDAH</div>
+      <h1 className="pv-focus-title">Leia mais.<br/><em>Distraia-se menos.</em></h1>
+      <div className="pv-focus-script">“Leitura guiada para uma mente que não gosta de ficar parada.”</div>
+      <p className="pv-focus-lead">Transforme livros e PDFs em uma rotina suave com leitura guiada por voz, controle calmo de ritmo e recursos pensados para cultivar foco sem ansiedade.</p>
+      <div className="pv-focus-features">
+       <div className="pv-focus-feature"><div className="pv-feature-icon">◉</div><strong>Voz Guiada &amp; Ritmo</strong><span>Destaque dinâmico no seu próprio andamento.</span></div>
+       <div className="pv-focus-feature"><div className="pv-feature-icon pv-green">▣</div><strong>Sem Distrações</strong><span>Ambiente silencioso, sem sobrecarga visual.</span></div>
+       <div className="pv-focus-feature"><div className="pv-feature-icon">▤</div><strong>Sua Biblioteca</strong><span>Sincronize PDFs, progresso e marcadores.</span></div>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:10,marginTop:28,maxWidth:600}}>
-       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Leia e ouça</div><div style={{...small,marginTop:3}}>PDF + voz natural.</div></div>
-       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Continue de onde parou</div><div style={{...small,marginTop:3}}>Progresso sincronizado.</div></div>
-       <div style={{...card,padding:13}}><div style={{fontWeight:800}}>Sua biblioteca</div><div style={{...small,marginTop:3}}>Livros e marcadores.</div></div>
-      </div>
-      {cloudSession&&libraryBooks[0]&&<div style={{...card,marginTop:24,maxWidth:620,padding:16}}>
-       <div style={{...small,fontWeight:800,letterSpacing:'.08em',color:'#f36b21'}}>CONTINUAR LENDO</div>
-       <button type="button" onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{border:0,background:'transparent',padding:'10px 0 0',width:'100%',textAlign:'left',color:'#173d31'}}>
-        <div style={{display:'flex',justifyContent:'space-between',gap:14,alignItems:'center'}}>
-         <div style={{minWidth:0}}><div style={{fontFamily:'Georgia,serif',fontSize:21,fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div><div style={{...small,marginTop:4}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'}</div></div>
-         <span style={{...primary,padding:'8px 12px',whiteSpace:'nowrap'}}>Continuar</span>
-        </div>
-        <div style={{height:6,background:'#eee4d7',borderRadius:99,marginTop:12,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#f36b21'}}/></div>
-       </button>
+      <div className="pv-focus-quote"><span className="pv-quote-icon">☕</span><div><strong>“Ler também é um jeito de cuidar da mente.”</strong><span>Pequenos momentos diários produzem grandes avanços.</span></div></div>
+     </section>
+     <section className="pv-focus-entry">
+      <div className="pv-entry-accent"/>
+      <div className="pv-entry-top"><span>ÁREA DO LEITOR</span>{!cloudSession&&<button type="button" className="pv-link-button" onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>Criar conta →</button>}</div>
+      <h2>Bem-vindo de volta!</h2>
+      <p>Continue sua jornada de leitura serena com foco, voz natural e um ritmo que acompanha você.</p>
+      {cloudSession?<div className="pv-entry-session">
+       <div className="pv-session-label">Conta conectada</div>
+       <strong>{cloudSession.user.email||'Leitor Meu Foco'}</strong>
+       <span>Seu progresso e seus marcadores estão sincronizados.</span>
+      </div>:<div className="pv-entry-session pv-entry-guest">
+       <div className="pv-session-label">SEU ESPAÇO DE LEITURA</div>
+       <strong>Foco sem pressa.</strong>
+       <span>Entre para sincronizar sua biblioteca ou experimente agora sem login.</span>
       </div>}
-     </div>
+      <div className="pv-entry-actions">
+       <button type="button" style={{...primary,width:'100%',padding:'14px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?'Minha conta':'Entrar no Meu Foco'} <span>→</span></button>
+       <button type="button" style={{...button,width:'100%',padding:'13px 20px',fontSize:15}} onClick={()=>fileRef.current?.click()}>Experimentar Modo Convidado · Abrir PDF</button>
+       {cloudSession&&<button type="button" style={{...button,width:'100%',padding:'13px 20px'}} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca{libraryBooks.length?' · '+libraryBooks.length:''}</button>}
+      </div>
+      <div className="pv-entry-divider"><span>MEU FOCO</span></div>
+      <div className="pv-entry-note">Leitura guiada, destaque sincronizado e biblioteca acolhedora.</div>
+     </section>
     </div>}
    </div>
    {doc&&!compact&&<div style={{...card,background:'#fff7dc'}}>
@@ -1187,7 +1192,7 @@ export default function IpadReader(){
    <div className="pv-account-card" style={{...card,width:'min(460px,94vw)',padding:0,overflow:'hidden',boxShadow:'0 24px 80px rgba(38,28,17,.24)'}} onClick={e=>e.stopPropagation()}>
     <div style={{padding:'24px 24px 18px',background:'linear-gradient(180deg,#fffaf2,#fff7ed)'}}>
      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:12}}>
-      <div style={{display:'flex',gap:12,alignItems:'center'}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800,lineHeight:1}}>Paper Voice</div><div style={{...small,marginTop:4}}>Livros. Ideias. Você.</div></div></div>
+      <div style={{display:'flex',gap:12,alignItems:'center'}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800,lineHeight:1}}>Meu Foco</div><div style={{...small,marginTop:4}}>Leitura & Atenção Serena</div></div></div>
       <button type="button" style={{...button,padding:'7px 10px'}} onClick={()=>setAccountOpen(false)}>Fechar</button>
      </div>
     </div>
@@ -1197,7 +1202,7 @@ export default function IpadReader(){
       <div style={{...small,marginTop:5}}>Sincronização entre aparelhos ativada.</div>
      </div>
      <div style={{...card,background:'#f5eee4',boxShadow:'none'}}>
-      <div style={{fontWeight:800,color:'#173d31'}}>{cloudSession.user.email||'Conta conectada'}</div>
+      <div style={{fontWeight:800,color:'#1B3B2B'}}>{cloudSession.user.email||'Conta conectada'}</div>
       <div style={{...small,marginTop:5}}>Página, trecho, marcadores, voz, velocidade e destaque ficam sincronizados.</div>
      </div>
      {doc&&<button type="button" style={currentCloudStored?button:primary} disabled={accountBusy||currentCloudStored} onClick={()=>void saveCurrentPdfToCloud()}>{currentCloudStored?'Livro atual salvo na nuvem':uploadProgress!==null?'Enviando '+uploadProgress+'%':'Salvar livro atual na nuvem'}</button>}
@@ -1206,8 +1211,8 @@ export default function IpadReader(){
      <button type="button" style={{...button,color:'#8a4932'}} disabled={accountBusy} onClick={()=>void handleSignOut()}>{accountBusy?'Aguarde…':'Sair da conta'}</button>
     </div>:<div style={{padding:'16px 24px 28px'}}>
      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,marginBottom:18}}>
-      <div><div style={{fontFamily:'Georgia,serif',fontSize:34,fontWeight:800,lineHeight:1.02}}>Bem-vindo<br/>de volta!</div><div style={{...small,fontSize:14,marginTop:8}}>Entre na sua conta e continue sua jornada de leitura.</div></div>
-      <button type="button" onClick={()=>void handleSignUp()} disabled={accountBusy} style={{border:0,background:'transparent',color:'#f36b21',fontWeight:800,padding:'6px 0'}}>Criar conta</button>
+      <div><div style={{fontFamily:'Georgia,serif',fontSize:34,fontWeight:800,lineHeight:1.02}}>Bem-vindo<br/>de volta!</div><div style={{...small,fontSize:14,marginTop:8}}>Entre na sua conta e continue sua jornada de leitura serena com foco.</div></div>
+      <button type="button" onClick={()=>void handleSignUp()} disabled={accountBusy} style={{border:0,background:'transparent',color:'#E76F3B',fontWeight:800,padding:'6px 0'}}>Criar conta</button>
      </div>
      <div style={{display:'grid',gap:12}}>
       <label style={{display:'grid',gap:6,fontSize:13,fontWeight:800}}>E-mail
@@ -1216,14 +1221,14 @@ export default function IpadReader(){
       <label style={{display:'grid',gap:6,fontSize:13,fontWeight:800}}>Senha
        <input type="password" autoComplete="current-password" placeholder="Sua senha" value={accountPassword} onChange={e=>setAccountPassword(e.target.value)} style={{...button,width:'100%',boxSizing:'border-box',background:'#fffdf9',padding:'13px 14px'}}/>
       </label>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,fontSize:12,color:'#7c786f'}}><span>Use a mesma conta em todos os aparelhos.</span><span style={{color:'#f36b21',fontWeight:700}}>Sincronização segura</span></div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,fontSize:12,color:'#7c786f'}}><span>Use a mesma conta em todos os aparelhos.</span><span style={{color:'#E76F3B',fontWeight:700}}>Sincronização segura</span></div>
       {accountMessage&&<div style={{...small,color:accountMessage.includes('Não')||accountMessage.includes('Digite')||accountMessage.includes('Use um')?'#9c4231':'#52645a',background:'#f6eee3',borderRadius:10,padding:'9px 10px'}}>{accountMessage}</div>}
-      <button type="button" style={{...primary,width:'100%',padding:'13px 16px',fontSize:16}} disabled={accountBusy} onClick={()=>void handleSignIn()}>{accountBusy?'Aguarde…':'Entrar'}</button>
+      <button type="button" style={{...primary,width:'100%',padding:'13px 16px',fontSize:16}} disabled={accountBusy} onClick={()=>void handleSignIn()}>{accountBusy?'Aguarde…':'Entrar no Meu Foco'}</button>
       <button type="button" style={{...button,width:'100%',padding:'12px 16px'}} disabled={accountBusy} onClick={()=>void handleSignUp()}>Ainda não tem conta? Criar conta</button>
      </div>
      <div className="pv-books-decoration" style={{marginTop:22,display:'flex',alignItems:'flex-end',gap:8,justifyContent:'center'}}>
       <div style={{width:86,height:18,borderRadius:5,background:'#c47a48',transform:'rotate(-2deg)'}}/>
-      <div style={{width:110,height:22,borderRadius:5,background:'#173d31',transform:'rotate(1deg)'}}/>
+      <div style={{width:110,height:22,borderRadius:5,background:'#1B3B2B',transform:'rotate(1deg)'}}/>
       <div style={{width:96,height:20,borderRadius:5,background:'#e8c69b',transform:'rotate(-1deg)'}}/>
      </div>
     </div>}
@@ -1237,7 +1242,7 @@ export default function IpadReader(){
   {libraryOpen&&cloudSession&&<div className="pv-library-screen" style={{position:'fixed',inset:0,zIndex:65,background:'#fbf7ef',overflow:'auto',padding:'max(28px,calc(12px + env(safe-area-inset-top,0px))) max(18px,calc(18px + env(safe-area-inset-right,0px))) calc(32px + env(safe-area-inset-bottom,0px)) max(18px,calc(18px + env(safe-area-inset-left,0px)))'}}>
    <div style={{maxWidth:1120,margin:'0 auto'}}>
     <div className="pv-library-header" style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:14,marginBottom:22}}>
-     <div style={{display:'flex',alignItems:'center',gap:12}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:32,fontWeight:800,lineHeight:1}}>Paper Voice</div><div style={{...small,marginTop:4}}>Sua biblioteca, sempre com você.</div></div></div>
+     <div style={{display:'flex',alignItems:'center',gap:12}}><PaperVoiceMark size={48}/><div><div style={{fontFamily:'Georgia,serif',fontSize:32,fontWeight:800,lineHeight:1}}>Meu Foco</div><div style={{...small,marginTop:4}}>Organize livros e PDFs sem sobrecarga, no ritmo da sua atenção.</div></div></div>
      <div style={{display:'flex',gap:8,alignItems:'center'}}>
       <button type="button" style={button} onClick={()=>choosePdfForLibrary()}>Adicionar PDF</button>
       <button type="button" style={button} onClick={()=>setLibraryOpen(false)}>Fechar</button>
@@ -1252,19 +1257,19 @@ export default function IpadReader(){
     {libraryBusy&&<div style={{...card,marginBottom:16}}>Atualizando sua biblioteca…</div>}
     {!libraryBusy&&libraryBooks.length===0&&<div style={{...card,padding:34,textAlign:'center'}}>
      <div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Sua biblioteca está pronta.</div>
-     <div style={{...small,fontSize:14,marginTop:7}}>Adicione um PDF e o Paper Voice salva sua leitura, marcadores e progresso.</div>
+     <div style={{...small,fontSize:14,marginTop:7}}>Adicione um PDF e o Meu Foco mantém sua leitura, marcadores e progresso sincronizados.</div>
      <button type="button" style={{...primary,marginTop:18}} onClick={()=>choosePdfForLibrary()}>Adicionar primeiro PDF</button>
     </div>}
 
     {libraryBooks.length>0&&<>
      <section style={{marginBottom:30}}>
-      <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:12}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Continuar lendo</div><div style={small}>Retome exatamente de onde parou.</div></div><span style={{...small,color:'#f36b21',fontWeight:800}}>Ver tudo</span></div>
+      <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:12}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Continuar lendo</div><div style={small}>Retome exatamente de onde parou.</div></div><span style={{...small,color:'#E76F3B',fontWeight:800}}>Ver tudo</span></div>
       <button type="button" disabled={libraryBusy} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):choosePdfForLibrary(libraryBooks[0])} style={{...card,width:'100%',display:'grid',gridTemplateColumns:'118px 1fr auto',alignItems:'center',gap:18,textAlign:'left',cursor:'pointer',background:'linear-gradient(135deg,#fff8ec,#f7ead8)',padding:16}}>
        <BookCover book={libraryBooks[0]} index={0} compact/>
        <div style={{minWidth:0}}>
         <div style={{fontFamily:'Georgia,serif',fontSize:25,fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
         <div style={{...small,marginTop:5}}>Página {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'salvo na nuvem':'toque para enviar o PDF'}</div>
-        <div style={{height:7,background:'#e6dccd',borderRadius:99,marginTop:14,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#f36b21'}}/></div>
+        <div style={{height:7,background:'#e6dccd',borderRadius:99,marginTop:14,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#E76F3B'}}/></div>
        </div>
        <span style={{...primary,padding:'10px 15px',whiteSpace:'nowrap'}}>Continuar</span>
       </button>
@@ -1273,11 +1278,11 @@ export default function IpadReader(){
      <section>
       <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:14}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Minha Biblioteca</div><div style={small}>Livros e PDFs sincronizados.</div></div><span style={{...small}}>Recentemente adicionados</span></div>
       <div className="pv-book-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))',gap:18}}>
-       {libraryBooks.map((book,i)=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):choosePdfForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#173d31',cursor:'pointer'}}>
+       {libraryBooks.map((book,i)=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):choosePdfForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#1B3B2B',cursor:'pointer'}}>
         <BookCover book={book} index={i}/>
         <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:16,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
         <div style={{...small,marginTop:4}}>Pág. {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Enviar PDF'}</div>
-        <div style={{height:4,background:'#e8dfd3',borderRadius:99,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((book.page/Math.max(1,book.total_pages))*100))+'%',background:i%2?'#173d31':'#f36b21'}}/></div>
+        <div style={{height:4,background:'#e8dfd3',borderRadius:99,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((book.page/Math.max(1,book.total_pages))*100))+'%',background:i%2?'#1B3B2B':'#E76F3B'}}/></div>
        </button>)}
       </div>
      </section>
