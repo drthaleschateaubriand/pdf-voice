@@ -6,6 +6,7 @@ import {splitIpadSpeech} from '../lib/ipad-speech';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
+type SpeechEngine='local'|'openai';
 type PdfTextItem={str?:string;hasEOL?:boolean};
 type PdfViewportLike={width:number;height:number};
 type PdfRenderTask={promise:Promise<void>;cancel:()=>void};
@@ -174,6 +175,7 @@ export default function IpadReader(){
  const [sentences,setSentences]=useState<string[]>([]),[index,setIndex]=useState(0);
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
  const [voices,setVoices]=useState<{id:string;name:string}[]>([]),[voice,setVoice]=useState('marin'),[speed,setSpeed]=useState(1);
+ const [engine,setEngine]=useState<SpeechEngine>('openai'),[localVoices,setLocalVoices]=useState<SpeechSynthesisVoice[]>([]),[localVoice,setLocalVoice]=useState('');
  const [connected,setConnected]=useState(false),[stage,setStage]=useState('Pronto'),[compact,setCompact]=useState(false),[compactControls,setCompactControls]=useState(true);
  const [selectedText,setSelectedText]=useState('');
  const [bookmarks,setBookmarks]=useState<number[]>([]);
@@ -190,6 +192,7 @@ export default function IpadReader(){
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
+ const localUtteranceRef=useRef<SpeechSynthesisUtterance|null>(null);
  const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),pagePrefetch=useRef(new Map<string,Promise<string[]>>()),fileKey=useRef('');
 
  useEffect(()=>{
@@ -207,15 +210,36 @@ export default function IpadReader(){
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
 
  useEffect(()=>{
+  if(typeof window==='undefined'||!('speechSynthesis' in window))return;
+  const synth=window.speechSynthesis;
+  const refresh=()=>{
+   const portuguese=synth.getVoices().filter(v=>/^pt(?:-|$)/i.test(v.lang));
+   const localOnly=portuguese.filter(v=>v.localService);
+   const usable=localOnly.length?localOnly:portuguese;
+   setLocalVoices(usable);
+   setLocalVoice(current=>{
+    if(current&&usable.some(v=>v.voiceURI===current))return current;
+    const preferred=usable.find(v=>/^pt-BR$/i.test(v.lang))||usable[0];
+    return preferred?.voiceURI||'';
+   });
+  };
+  refresh();
+  synth.addEventListener?.('voiceschanged',refresh);
+  return()=>synth.removeEventListener?.('voiceschanged',refresh);
+ },[]);
+
+ useEffect(()=>{
   try{
-   const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {voice?:string;speed?:number;highlightEnabled?:boolean};
+   const prefs=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}') as {voice?:string;localVoice?:string;engine?:SpeechEngine;speed?:number;highlightEnabled?:boolean};
    if(typeof prefs.voice==='string'&&prefs.voice)setVoice(prefs.voice);
+   if(typeof prefs.localVoice==='string')setLocalVoice(prefs.localVoice);
+   if(prefs.engine==='local'||prefs.engine==='openai')setEngine(prefs.engine);
    if(typeof prefs.speed==='number'&&[0.75,1,1.25,1.5,1.75,2].includes(prefs.speed))setSpeed(prefs.speed);
    if(typeof prefs.highlightEnabled==='boolean'){setHighlightEnabled(prefs.highlightEnabled);highlightEnabledRef.current=prefs.highlightEnabled;}
   }catch{}
  },[]);
 
- function persistPreferences(next:{voice?:string;speed?:number;highlightEnabled?:boolean}){
+ function persistPreferences(next:{voice?:string;localVoice?:string;engine?:SpeechEngine;speed?:number;highlightEnabled?:boolean}){
   try{
    const current=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}');
    localStorage.setItem('paper-voice-preferences',JSON.stringify({...current,...next}));
@@ -375,9 +399,11 @@ export default function IpadReader(){
    try{savedVoice=JSON.parse(localStorage.getItem('paper-voice-preferences')||'{}').voice||'';}catch{}
    const preferred=o.voices?.find(v=>v.id===savedVoice)||o.voices?.find(v=>v.id==='marin')||o.voices?.[0];
    if(preferred)setVoice(preferred.id);
-  }).catch(()=>setError('Não foi possível verificar a conexão com a voz OpenAI.'));
+  }).catch(()=>setConnected(false));
   return()=>{
    token.current++;
+   if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
+   localUtteranceRef.current=null;
    audioRef.current?.pause();
    if(gestureAudioUrlRef.current)URL.revokeObjectURL(gestureAudioUrlRef.current);
    renderTask.current?.cancel();
@@ -435,6 +461,8 @@ export default function IpadReader(){
 
  function stop(reset=false){
   token.current++;clipId.current++;playWanted.current=false;
+  if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
+  localUtteranceRef.current=null;
   const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;a.removeAttribute('src');try{a.load();}catch{}}
   activeAudioUrlRef.current='';
   setMode('idle');clearSpokenHighlight();
@@ -443,6 +471,8 @@ export default function IpadReader(){
 
  function stopAndClearAudio(){
   token.current++;clipId.current++;playWanted.current=false;
+  if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
+  localUtteranceRef.current=null;
   for(const controller of audioRequests.current)controller.abort();
   audioRequests.current.clear();
   const a=audioRef.current;
@@ -781,8 +811,60 @@ export default function IpadReader(){
   void audio.play().catch(()=>{});
  }
 
+ async function playLocalAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
+  if(!playWanted.current||currentToken!==token.current)return;
+  const currentClip=++clipId.current;
+  if(i>=list.length){
+   if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
+   const d=docRef.current,n=pageRef.current;
+   if(d&&n<d.numPages){
+    try{
+     const next=await extractPage(d,n+1);
+     if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
+    }catch(e){
+     setError(e instanceof Error?e.message:'Falha ao avançar página.');
+     stop();
+    }
+   }else{
+    playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Fim do documento');
+   }
+   return;
+  }
+  if(typeof window==='undefined'||!('speechSynthesis' in window)){
+   setError('A voz gratuita local não está disponível neste aparelho.');
+   stop();return;
+  }
+  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}
+  const synth=window.speechSynthesis;
+  const selectedVoice=localVoices.find(v=>v.voiceURI===localVoice)||localVoices.find(v=>/^pt-BR$/i.test(v.lang))||localVoices[0];
+  const utterance=new SpeechSynthesisUtterance(list[i]);
+  utterance.lang=selectedVoice?.lang||'pt-BR';
+  if(selectedVoice)utterance.voice=selectedVoice;
+  utterance.rate=speed;
+  localUtteranceRef.current=utterance;
+  utterance.onend=()=>{
+   if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
+   void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);
+  };
+  utterance.onerror=event=>{
+   if(currentToken!==token.current||currentClip!==clipId.current)return;
+   const reason=String(event.error||'');
+   if(!playWanted.current||reason==='canceled'||reason==='interrupted')return;
+   setError('Falha na voz gratuita local'+(reason?' ('+reason+')':'')+'.');
+   stop();
+  };
+  synth.cancel();
+  synth.speak(utterance);
+  setMode('playing');setStage('Lendo · voz gratuita local');
+  if(fileKey.current){
+   try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:pageRef.current,index:i}));}catch{}
+  }
+  if(cloudBookIdRef.current)void saveCloudProgress(cloudBookIdRef.current,pageRef.current,i).catch(()=>setCloudStatus('Nuvem temporariamente indisponível'));
+ }
+
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
   if(!playWanted.current||currentToken!==token.current)return;
+  if(engine==='local'){await playLocalAt(i,list,currentToken,continueDocument,trackIndex,customRanges);return;}
   const currentClip=++clipId.current;
   if(i>=list.length){
    if(!continueDocument){playWanted.current=false;setMode('idle');clearSpokenHighlight();setStage('Seleção concluída');return;}
@@ -928,7 +1010,7 @@ export default function IpadReader(){
   if(!list.length)return;
   const ranges=built.ranges.length===list.length?built.ranges:Array.from({length:list.length},()=>({start:start.item,end:end.item}));
   stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
-  unlockAudioOnTap();
+  if(engine==='openai')unlockAudioOnTap();else if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
   playWanted.current=true;setStage('Lendo seleção');
   const currentToken=++token.current;
   void playAt(0,list,currentToken,false,false,ranges);
@@ -940,21 +1022,35 @@ export default function IpadReader(){
   const built=buildRangesForSegment(item,items.length-1,offset);
   if(!built.list.length)return;
   stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
-  unlockAudioOnTap();
+  if(engine==='openai')unlockAudioOnTap();else if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
   playWanted.current=true;setStage('Lendo a partir da seleção');
   const currentToken=++token.current;
   void playAt(0,built.list,currentToken,true,false,built.ranges);
  }
 
  async function testVoice(){
-  setError('');setStage('Testando voz…');
-  unlockAudioOnTap();
+  setError('');setStage('Testando voz…');stop();
   try{
+   if(engine==='local'){
+    if(typeof window==='undefined'||!('speechSynthesis' in window))throw new Error('A voz gratuita local não está disponível neste aparelho.');
+    const synth=window.speechSynthesis;
+    const selectedVoice=localVoices.find(v=>v.voiceURI===localVoice)||localVoices.find(v=>/^pt-BR$/i.test(v.lang))||localVoices[0];
+    const utterance=new SpeechSynthesisUtterance('Teste de voz do leitor. Tudo certo.');
+    utterance.lang=selectedVoice?.lang||'pt-BR';if(selectedVoice)utterance.voice=selectedVoice;utterance.rate=1;
+    localUtteranceRef.current=utterance;
+    await new Promise<void>((resolve,reject)=>{
+     utterance.onend=()=>resolve();
+     utterance.onerror=event=>reject(new Error('Falha na voz local'+(event.error?' ('+event.error+')':'')+'.'));
+     synth.cancel();synth.speak(utterance);
+    });
+    setStage('Voz gratuita local funcionando');return;
+   }
+   unlockAudioOnTap();
    const url=await audioUrl('Teste de voz do leitor. Tudo certo.');
    let a=audioRef.current;
    if(!a){a=new Audio();a.preload='auto';audioRef.current=a;}
    a.pause();a.onended=null;a.onerror=null;a.src=url;a.playbackRate=1;
-   await a.play();setStage('Voz OpenAI funcionando');
+   await a.play();setStage('Voz Premium OpenAI funcionando');
   }catch(e){
    setError(e instanceof Error?e.message:'Falha no teste de voz.');
    setStage('Falha no teste de voz');
@@ -962,6 +1058,18 @@ export default function IpadReader(){
  }
 
  function toggle(){
+  if(engine==='local'){
+   if(typeof window==='undefined'||!('speechSynthesis' in window)){setError('A voz gratuita local não está disponível neste aparelho.');return;}
+   const synth=window.speechSynthesis;
+   if(mode==='playing'){
+    playWanted.current=false;synth.pause();setMode('paused');setStage('Pausado');return;
+   }
+   if(mode==='paused'&&localUtteranceRef.current){
+    playWanted.current=true;synth.resume();setMode('playing');setStage('Lendo · voz gratuita local');return;
+   }
+   if(!sentencesRef.current.length)return;
+   playWanted.current=true;void playAt(indexRef.current,sentencesRef.current);return;
+  }
   const a=audioRef.current;
   if(mode==='playing'){
    playWanted.current=false;a?.pause();setMode('paused');setStage('Pausado');return;
@@ -1054,7 +1162,7 @@ export default function IpadReader(){
   const next=Math.max(0,Math.min(list.length-1,indexRef.current+delta));
   const was=mode==='playing';
   stop();setIndex(next);indexRef.current=next;
-  if(was){unlockAudioOnTap();playWanted.current=true;void playAt(next,list);}
+  if(was){if(engine==='openai')unlockAudioOnTap();playWanted.current=true;void playAt(next,list);}
  }
 
  const active=sentences[index]||'';
@@ -1167,9 +1275,15 @@ export default function IpadReader(){
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>Próxima página</button>
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:8}}>
-    <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);persistPreferences({voice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'28%'}}>
-     {voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+    <select aria-label="Motor de voz" value={engine} onChange={e=>{const next=e.target.value as SpeechEngine;stop();setEngine(next);persistPreferences({engine:next});setStage(next==='local'?'Voz gratuita local':'Voz Premium OpenAI');}} style={{...button,padding:'7px 9px',maxWidth:'26%'}}>
+     <option value="local">Gratuita ilimitada</option>
+     <option value="openai">Premium OpenAI</option>
     </select>
+    {engine==='local'?<select aria-label="Voz local" value={localVoice} onChange={e=>{stop();setLocalVoice(e.target.value);persistPreferences({localVoice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'30%'}}>
+     {localVoices.length?<>{localVoices.map(v=><option key={v.voiceURI} value={v.voiceURI}>{v.name} · {v.lang}</option>)}</>:<option value="">Voz do aparelho</option>}
+    </select>:<select aria-label="Voz Premium OpenAI" value={voice} onChange={e=>{stop();setVoice(e.target.value);persistPreferences({voice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'28%'}}>
+     {voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+    </select>}
     <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Desmarcar página':'Marcar página'}</button>
     <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque ligado':'Destaque desligado'}</button>
     <select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'7px 9px',maxWidth:'25%'}}>
