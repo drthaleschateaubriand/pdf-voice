@@ -818,7 +818,10 @@ export default function IpadReader(){
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
    const current=audioUrl(list[i]);
-   if(i+1<list.length)void audioUrl(list[i+1]).catch(()=>{});
+   for(let ahead=1;ahead<=3;ahead++){
+    const nextIndex=i+ahead;
+    if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
+   }
    const url=await current;
    if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
