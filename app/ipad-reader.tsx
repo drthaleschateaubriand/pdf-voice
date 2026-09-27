@@ -44,52 +44,6 @@ function PaperVoiceMark({size=42}:{size?:number}){
  </svg>;
 }
 
-function ReadingNookIllustration(){
- return <svg viewBox="0 0 520 620" role="img" aria-label="Pessoa lendo em um ambiente aconchegante" style={{width:'100%',height:'100%',display:'block'}}>
-  <defs>
-   <linearGradient id="pvwall" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#fff7e9"/><stop offset="1" stopColor="#f4e4cf"/></linearGradient>
-   <linearGradient id="pvsweater" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#ef6f2e"/><stop offset="1" stopColor="#c94c1e"/></linearGradient>
-  </defs>
-  <rect width="520" height="620" rx="34" fill="url(#pvwall)"/>
-  <circle cx="420" cy="90" r="80" fill="#f6d8ad" opacity=".45"/>
-  <rect x="0" y="500" width="520" height="120" fill="#c98248"/>
-  <rect x="36" y="98" width="110" height="14" rx="7" fill="#9f6b3d"/>
-  <rect x="46" y="66" width="75" height="30" rx="4" fill="#c3733f"/>
-  <rect x="62" y="40" width="58" height="24" rx="4" fill="#1f4a3a"/>
-  <g fill="#285943">
-   <ellipse cx="78" cy="178" rx="22" ry="48" transform="rotate(-28 78 178)"/>
-   <ellipse cx="112" cy="156" rx="18" ry="40" transform="rotate(27 112 156)"/>
-   <ellipse cx="48" cy="214" rx="16" ry="34" transform="rotate(-45 48 214)"/>
-  </g>
-  <rect x="86" y="216" width="48" height="72" rx="6" fill="#b76d39"/>
-  <ellipse cx="292" cy="362" rx="120" ry="92" fill="#f4eee7"/>
-  <circle cx="282" cy="265" r="54" fill="#e6b58e"/>
-  <path d="M225 252c12-50 92-74 122-10-17-13-37-15-57-8-22 7-41 19-65 18Z" fill="#2a211d"/>
-  <path d="M215 335c42-26 134-22 167 20l-30 118H230Z" fill="url(#pvsweater)"/>
-  <path d="M230 323c18 34 96 38 127 6 4 43-24 85-68 87-46 2-73-35-59-93Z" fill="#f5d2b6"/>
-  <path d="M255 330c-25-5-55 20-56 48 24 4 46-4 68-22Z" fill="#ef6f2e"/>
-  <path d="M329 327c27-4 54 20 55 48-24 5-48-3-70-22Z" fill="#ef6f2e"/>
-  <path d="M235 341c25 7 49 20 68 38v94c-21-17-44-27-68-31Z" fill="#776c5a"/>
-  <path d="M371 341c-25 7-49 20-68 38v94c21-17 44-27 68-31Z" fill="#8b806d"/>
-  <path d="M303 379v94" stroke="#5d5447" strokeWidth="3"/>
-  <ellipse cx="167" cy="492" rx="78" ry="42" fill="#d59a63"/>
-  <circle cx="115" cy="478" r="33" fill="#d59a63"/>
-  <ellipse cx="103" cy="484" rx="16" ry="11" fill="#8b5b3f"/>
-  <path d="M89 460c8-24 26-28 38-8-11 4-22 7-38 8Z" fill="#a56a47"/>
-  <path d="M200 501c26-7 51-5 73 9-25 18-58 22-85 4Z" fill="#bd7f50"/>
-  <rect x="382" y="420" width="88" height="70" rx="12" fill="#f2e5d3"/>
-  <path d="M400 442h48M400 456h38" stroke="#1B3B2B" strokeWidth="4" strokeLinecap="round"/>
-  <g fill="#285943">
-   <ellipse cx="440" cy="340" rx="18" ry="42" transform="rotate(-34 440 340)"/>
-   <ellipse cx="468" cy="315" rx="16" ry="38" transform="rotate(24 468 315)"/>
-  </g>
-  <rect x="438" y="365" width="42" height="68" rx="6" fill="#b76d39"/>
-  <text x="58" y="335" fill="#1B3B2B" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 335)">Boas leituras</text>
-  <text x="58" y="360" fill="#1B3B2B" fontFamily="cursive" fontSize="22" transform="rotate(-7 58 360)">inspiram dias melhores.</text>
-  <path d="M55 372c38 8 74 4 105-8" fill="none" stroke="#E76F3B" strokeWidth="5" strokeLinecap="round"/>
- </svg>;
-}
-
 function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
  const palettes=[
   ['#1B3B2B','#f0a25f','#F7F3EB'],
