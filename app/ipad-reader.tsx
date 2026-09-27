@@ -116,6 +116,10 @@ function isAppleTouch(){
 }
 
 const splitSentences=splitIpadSpeech;
+const isPlaybackPermissionError=(value:unknown)=>{
+ const error=value as {name?:string;message?:string}|null;
+ return error?.name==='NotAllowedError'||/request is not allowed by the user agent|user denied permission/i.test(error?.message||'');
+};
 
 async function fileBytes(file:File){
  if(typeof file.arrayBuffer==='function')return file.arrayBuffer();
@@ -185,7 +189,7 @@ export default function IpadReader(){
  const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
- const audioRef=useRef<HTMLAudioElement|null>(null),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
+ const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
  const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),fileKey=useRef('');
 
  useEffect(()=>{
@@ -375,6 +379,7 @@ export default function IpadReader(){
   return()=>{
    token.current++;
    audioRef.current?.pause();
+   if(gestureAudioUrlRef.current)URL.revokeObjectURL(gestureAudioUrlRef.current);
    renderTask.current?.cancel();
    textLayerTask.current?.cancel?.();
    void docRef.current?.destroy();
@@ -431,7 +436,7 @@ export default function IpadReader(){
  function stop(reset=false){
   token.current++;clipId.current++;playWanted.current=false;
   const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;a.removeAttribute('src');try{a.load();}catch{}}
-  audioRef.current=null;activeAudioUrlRef.current='';
+  activeAudioUrlRef.current='';
   setMode('idle');clearSpokenHighlight();
   if(reset){setIndex(0);indexRef.current=0;}
  }
@@ -448,7 +453,7 @@ export default function IpadReader(){
    try{a.load();}catch{}
   }
   for(const url of cache.current.values())URL.revokeObjectURL(url);
-  cache.current.clear();pendingAudio.current.clear();audioRef.current=null;activeAudioUrlRef.current='';
+  cache.current.clear();pendingAudio.current.clear();activeAudioUrlRef.current='';
   clearSpokenHighlight();
   setMode('idle');
   setError('');
@@ -721,13 +726,30 @@ export default function IpadReader(){
  }
 
  function prepareAudioElement(url:string){
-  const previous=audioRef.current;
-  if(previous){previous.onended=null;previous.onerror=null;previous.pause();previous.removeAttribute('src');try{previous.load();}catch{}}
-  const audio=new Audio();audio.preload='auto';audioRef.current=audio;
+  const audio=audioRef.current||new Audio();audioRef.current=audio;
+  audio.onended=null;audio.onerror=null;audio.pause();audio.preload='auto';
   activeAudioUrlRef.current=url;
   audio.src=url;
   audio.playbackRate=speed;
   return audio;
+ }
+
+ // Safari grants playback to the media element touched by the user. Keep that
+ // same element for every fetched clip, including subsequent sentences.
+ function unlockAudioOnTap(){
+  const audio=audioRef.current||new Audio();audioRef.current=audio;
+  if(!gestureAudioUrlRef.current){
+   const samples=1600,bytes=new Uint8Array(44+samples),view=new DataView(bytes.buffer);
+   const write=(offset:number,value:string)=>{for(let n=0;n<value.length;n++)bytes[offset+n]=value.charCodeAt(n);};
+   write(0,'RIFF');view.setUint32(4,36+samples,true);write(8,'WAVE');write(12,'fmt ');
+   view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,1,true);
+   view.setUint32(24,8000,true);view.setUint32(28,8000,true);view.setUint16(32,1,true);view.setUint16(34,8,true);
+   write(36,'data');view.setUint32(40,samples,true);bytes.fill(128,44);
+   gestureAudioUrlRef.current=URL.createObjectURL(new Blob([bytes],{type:'audio/wav'}));
+  }
+  audio.pause();audio.onended=null;audio.onerror=null;
+  audio.src=gestureAudioUrlRef.current;audio.volume=1;
+  void audio.play().catch(()=>{});
  }
 
  async function playAt(i:number,list=sentencesRef.current,currentToken=++token.current,continueDocument=true,trackIndex=true,customRanges?:Array<{start:number;end:number}>){
@@ -760,7 +782,8 @@ export default function IpadReader(){
    const isCurrent=()=>playWanted.current&&currentToken===token.current&&currentClip===clipId.current&&audioRef.current===audio;
    const onEnded=()=>{
     if(!isCurrent()||advanced||recovering)return;
-    if(audio.currentTime<0.2||(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration)){void recoverPlayback();return;}
+    if(audio.currentTime<0.2)return;
+    if(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration){void recoverPlayback();return;}
     advanced=true;
     void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);
    };
@@ -778,9 +801,14 @@ export default function IpadReader(){
      audio.onended=onEnded;
      audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho mesmo após recuperar o áudio.');stop();};
      await audio.play();
+     recovering=false;
      if(isCurrent()&&!advanced){setMode('playing');setStage('Lendo');}
     }catch(recoveryError){
      if(currentToken!==token.current||currentClip!==clipId.current)return;
+     if(isPlaybackPermissionError(recoveryError)){
+      recovering=false;
+      playWanted.current=false;setMode('paused');setStage('Toque em Continuar para liberar o áudio');return;
+     }
      setError(recoveryError instanceof Error?recoveryError.message:'Falha ao recuperar o áudio.');
      stop();
     }
@@ -791,6 +819,9 @@ export default function IpadReader(){
     await audio.play();
    }catch(firstError){
     if(currentToken!==token.current||currentClip!==clipId.current)return;
+    if(isPlaybackPermissionError(firstError)){
+     playWanted.current=false;setMode('paused');setStage('Toque em Continuar para liberar o áudio');return;
+    }
     const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported/i.test(firstError.message));
     if(!unsupported)throw firstError;
     await recoverPlayback();
@@ -816,6 +847,7 @@ export default function IpadReader(){
   if(!list.length)return;
   const ranges=built.ranges.length===list.length?built.ranges:Array.from({length:list.length},()=>({start:start.item,end:end.item}));
   stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
+  unlockAudioOnTap();
   playWanted.current=true;setStage('Lendo seleção');
   const currentToken=++token.current;
   void playAt(0,list,currentToken,false,false,ranges);
@@ -827,6 +859,7 @@ export default function IpadReader(){
   const built=buildRangesForSegment(item,items.length-1,offset);
   if(!built.list.length)return;
   stop();setSelectedText('');try{window.getSelection()?.removeAllRanges();}catch{}
+  unlockAudioOnTap();
   playWanted.current=true;setStage('Lendo a partir da seleção');
   const currentToken=++token.current;
   void playAt(0,built.list,currentToken,true,false,built.ranges);
@@ -834,6 +867,7 @@ export default function IpadReader(){
 
  async function testVoice(){
   setError('');setStage('Testando voz…');
+  unlockAudioOnTap();
   try{
    const url=await audioUrl('Teste de voz do leitor. Tudo certo.');
    let a=audioRef.current;
@@ -859,6 +893,7 @@ export default function IpadReader(){
    return;
   }
   if(!sentencesRef.current.length)return;
+  unlockAudioOnTap();
   playWanted.current=true;void playAt(indexRef.current,sentencesRef.current);
  }
 
@@ -938,7 +973,7 @@ export default function IpadReader(){
   const next=Math.max(0,Math.min(list.length-1,indexRef.current+delta));
   const was=mode==='playing';
   stop();setIndex(next);indexRef.current=next;
-  if(was){playWanted.current=true;void playAt(next,list);}
+  if(was){unlockAudioOnTap();playWanted.current=true;void playAt(next,list);}
  }
 
  const active=sentences[index]||'';
