@@ -45,16 +45,15 @@ function PaperVoiceMark({size=42}:{size?:number}){
 }
 
 function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;current:boolean;onSelect:(page:number)=>void}){
- const canvas=useRef<HTMLCanvasElement>(null),host=useRef<HTMLButtonElement>(null);
+ const canvas=useRef<HTMLCanvasElement>(null);
  useEffect(()=>{
-  const el=host.current;if(!el)return;
   let cancelled=false,task:PdfRenderTask|null=null;
-  const render=async()=>{
-   if(cancelled||!canvas.current)return;
+  void (async()=>{
    try{
     const pdfPage=await doc.getPage(page);
+    if(cancelled||!canvas.current)return;
     const base=pdfPage.getViewport({scale:1});
-    const cssWidth=132,scale=cssWidth/Math.max(1,base.width),viewport=pdfPage.getViewport({scale});
+    const cssWidth=128,scale=cssWidth/Math.max(1,base.width),viewport=pdfPage.getViewport({scale});
     const dpr=Math.min(2,window.devicePixelRatio||1),target=canvas.current,ctx=target.getContext('2d');
     if(!ctx)return;
     target.width=Math.max(1,Math.round(viewport.width*dpr));target.height=Math.max(1,Math.round(viewport.height*dpr));
@@ -62,15 +61,45 @@ function PageThumbnail({doc,page,current,onSelect}:{doc:PdfDocLike;page:number;c
     task=pdfPage.render({canvasContext:ctx,viewport,transform:dpr!==1?[dpr,0,0,dpr,0,0]:undefined});
     await task.promise;
    }catch{}
-  };
-  if(typeof IntersectionObserver==='undefined'){void render();return()=>{cancelled=true;task?.cancel();};}
-  const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){observer.disconnect();void render();}},{root:el.closest('.mf-page-sidebar-scroll'),rootMargin:'500px 0px'});
-  observer.observe(el);
-  return()=>{cancelled=true;observer.disconnect();task?.cancel();};
+  })();
+  return()=>{cancelled=true;task?.cancel();};
  },[doc,page]);
- return <button ref={host} type="button" className={current?'mf-page-thumb current':'mf-page-thumb'} aria-label={'Ir para página '+page} aria-current={current?'page':undefined} onClick={()=>onSelect(page)}>
-  <span className="mf-page-thumb-canvas"><canvas ref={canvas}/></span><span className="mf-page-thumb-number">{page}</span>
+ return <button type="button" className={current?'mf-page-thumb current':'mf-page-thumb'} aria-label={'Ir para página '+page} aria-current={current?'page':undefined} onClick={()=>onSelect(page)}>
+  <span className="mf-page-thumb-canvas"><canvas ref={canvas}/></span>
+  <span className="mf-page-thumb-number">{page}</span>
  </button>;
+}
+
+function BookNavigator({doc,pages,current,jumpValue,setJumpValue,onJump,onSelect,onClose}:{doc:PdfDocLike;pages:number;current:number;jumpValue:string;setJumpValue:(value:string)=>void;onJump:()=>void;onSelect:(page:number)=>void;onClose:()=>void}){
+ const ITEM=184,BUFFER=4,scrollRef=useRef<HTMLDivElement>(null);
+ const [range,setRange]=useState({start:1,end:Math.min(pages,12)});
+ const recalc=useCallback(()=>{
+  const el=scrollRef.current;if(!el)return;
+  const first=Math.max(1,Math.floor(el.scrollTop/ITEM)+1-BUFFER);
+  const last=Math.min(pages,Math.ceil((el.scrollTop+el.clientHeight)/ITEM)+BUFFER);
+  setRange(r=>r.start===first&&r.end===last?r:{start:first,end:last});
+ },[pages]);
+ useEffect(()=>{recalc();},[recalc]);
+ useEffect(()=>{
+  const el=scrollRef.current;if(!el||!pages)return;
+  const target=Math.max(0,(current-1)*ITEM-(el.clientHeight-ITEM)/2);
+  el.scrollTo({top:target,behavior:'smooth'});
+  const timer=window.setTimeout(recalc,220);
+  return()=>window.clearTimeout(timer);
+ },[current,pages,recalc]);
+ const visible=Array.from({length:Math.max(0,range.end-range.start+1)},(_,i)=>range.start+i);
+ return <aside className="mf-book-nav" aria-label="Navegar no livro" style={{width:190,flex:'0 0 190px',minWidth:190,height:'68dvh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
+  <div className="mf-book-nav-head"><div><strong>Navegar no livro</strong><span>Página {current} de {pages}</span></div><button type="button" onClick={onClose} aria-label="Fechar navegação">×</button></div>
+  <div className="mf-book-nav-tools">
+   <button type="button" onClick={()=>onSelect(1)}>Capa / início</button>
+   <form onSubmit={e=>{e.preventDefault();onJump();}}><input aria-label="Ir para página" inputMode="numeric" pattern="[0-9]*" value={jumpValue} onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}/><button type="submit">Ir</button></form>
+  </div>
+  <div ref={scrollRef} className="mf-book-nav-scroll" onScroll={recalc} style={{flex:1,minHeight:0,overflowY:'auto',overflowX:'hidden',position:'relative'}}>
+   <div style={{height:pages*ITEM,position:'relative'}}>
+    {visible.map(n=><div key={n} style={{position:'absolute',left:0,right:0,top:(n-1)*ITEM,height:ITEM,display:'grid',placeItems:'start center'}}><PageThumbnail doc={doc} page={n} current={n===current} onSelect={onSelect}/></div>)}
+   </div>
+  </div>
+ </aside>;
 }
 
 function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
@@ -1058,7 +1087,7 @@ export default function IpadReader(){
     </div>
    </div>
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
-    {doc&&<button style={button} aria-pressed={pageSidebarOpen} onClick={()=>setPageSidebarOpen(v=>!v)}>{pageSidebarOpen?'Ocultar páginas':'Páginas'}</button>}
+    {doc&&<button style={button} aria-pressed={pageSidebarOpen} onClick={()=>setPageSidebarOpen(v=>!v)}>{pageSidebarOpen?'Fechar navegação':'Navegar no livro'}</button>}
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
@@ -1084,15 +1113,9 @@ export default function IpadReader(){
 
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
-   <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'}>
-    {doc&&pageSidebarOpen&&!compact&&<aside className="mf-page-sidebar" aria-label="Miniaturas das páginas">
-     <div className="mf-page-sidebar-head"><div><strong>Páginas</strong><span>{page} de {pages}</span></div><button type="button" onClick={()=>setPageSidebarOpen(false)} aria-label="Fechar páginas">×</button></div>
-     <div className="mf-page-sidebar-actions"><button type="button" onClick={()=>void goPage(1)}>⌂ Início</button><form onSubmit={e=>{e.preventDefault();jumpToPage();}}><input aria-label="Ir para página" inputMode="numeric" pattern="[0-9]*" value={jumpValue} onChange={e=>setJumpValue(e.target.value.replace(/[^0-9]/g,''))}/><button type="submit">Ir</button></form></div>
-     <div className="mf-page-sidebar-scroll">
-      {Array.from({length:pages},(_,i)=>i+1).map(n=><PageThumbnail key={n} doc={doc} page={n} current={n===page} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}}/>)}
-     </div>
-    </aside>}
-    <div className="mf-reader-main">
+   <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'} style={{position:'relative',display:'flex',alignItems:'stretch',gap:12,minWidth:0}}>
+    {doc&&pageSidebarOpen&&!compact&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);}} onClose={()=>setPageSidebarOpen(false)}/>}
+    <div className="mf-reader-main" style={{minWidth:0,flex:1}}>
    <div ref={canvasWrap} style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
     <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
      <canvas ref={canvasRef} aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
@@ -1323,7 +1346,7 @@ export default function IpadReader(){
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
-    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Páginas</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
    </form>
