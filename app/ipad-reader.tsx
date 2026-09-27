@@ -664,7 +664,7 @@ export default function IpadReader(){
   trimTemporaryAudioCache();
  }
 
- async function loadAudioUrl(text:string,forceFresh=false){
+ async function loadAudioUrl(text:string,forceFresh=false,retry=0){
   const key=voice+'|'+text;
   if(!forceFresh&&cache.current.has(key))return cache.current.get(key)!;
 
@@ -681,6 +681,8 @@ export default function IpadReader(){
   }
 
   const controller=new AbortController();audioRequests.current.add(controller);
+  let timedOut=false;
+  const requestTimeout=window.setTimeout(()=>{timedOut=true;controller.abort();},20000);
   try{
    const res=await fetch('/api/speech',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:'openai',text,voice}),signal:controller.signal});
    if(!res.ok){
@@ -698,7 +700,12 @@ export default function IpadReader(){
    const url=URL.createObjectURL(blob);
    rememberTemporaryAudio(key,url);
    return url;
+  }catch(e){
+   if((timedOut||e instanceof TypeError)&&retry<1)return loadAudioUrl(text,true,retry+1);
+   if(timedOut)throw new Error('A geração de voz demorou demais e foi interrompida.');
+   throw e;
   }finally{
+   window.clearTimeout(requestTimeout);
    audioRequests.current.delete(controller);
   }
  }
@@ -825,18 +832,42 @@ export default function IpadReader(){
    const url=await current;
    if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
-   let recovering=false,advanced=false;
-   const isCurrent=()=>playWanted.current&&currentToken===token.current&&currentClip===clipId.current&&audioRef.current===audio;
-   const onEnded=()=>{
+   let recovering=false,advanced=false,recoveryAttempts=0,watchdog:number|undefined,lastProgress=0,stalledTicks=0;
+   const sameClip=()=>currentToken===token.current&&currentClip===clipId.current&&audioRef.current===audio;
+   const isCurrent=()=>playWanted.current&&sameClip();
+   function clearWatchdog(){if(watchdog!==undefined){window.clearInterval(watchdog);watchdog=undefined;}}
+   function advanceToNext(){
     if(!isCurrent()||advanced||recovering)return;
-    if(audio.currentTime<0.2)return;
-    if(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration){void recoverPlayback();return;}
-    advanced=true;
+    clearWatchdog();advanced=true;
     void playAt(i+1,list,currentToken,continueDocument,trackIndex,customRanges);
-   };
-   const recoverPlayback=async()=>{
+   }
+   function startWatchdog(){
+    clearWatchdog();lastProgress=audio.currentTime;stalledTicks=0;
+    watchdog=window.setInterval(()=>{
+     if(!sameClip()){clearWatchdog();return;}
+     if(!playWanted.current||audio.paused){lastProgress=audio.currentTime;stalledTicks=0;return;}
+     const now=audio.currentTime;
+     if(audio.ended||(Number.isFinite(audio.duration)&&audio.duration>0&&now>0.2&&now+0.15>=audio.duration)){advanceToNext();return;}
+     if(now>lastProgress+0.05){lastProgress=now;stalledTicks=0;return;}
+     stalledTicks++;
+     if(stalledTicks>=4){clearWatchdog();void recoverPlayback();}
+    },1000);
+   }
+   function onEnded(){
+    if(!isCurrent()||advanced||recovering)return;
+    if(audio.currentTime<0.2){void recoverPlayback();return;}
+    if(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration){void recoverPlayback();return;}
+    advanceToNext();
+   }
+   async function recoverPlayback(){
     if(recovering||advanced||!isCurrent())return;
-    recovering=true;
+    recoveryAttempts++;
+    if(recoveryAttempts>2){
+     clearWatchdog();
+     setError('Este trecho não conseguiu se recuperar automaticamente. Toque em Ler para tentar novamente.');
+     stop();return;
+    }
+    recovering=true;clearWatchdog();
     setStage('Recuperando áudio…');
     try{
      audio.onended=null;audio.onerror=null;audio.pause();audio.removeAttribute('src');try{audio.load();}catch{}
@@ -846,28 +877,31 @@ export default function IpadReader(){
      if(currentToken!==token.current||currentClip!==clipId.current||!playWanted.current)return;
      audio=prepareAudioElement(freshUrl);
      audio.onended=onEnded;
-     audio.onerror=()=>{setError('O Safari não conseguiu reproduzir este trecho mesmo após recuperar o áudio.');stop();};
+     audio.onerror=()=>{void recoverPlayback();};
      await audio.play();
-     recovering=false;
+     recovering=false;startWatchdog();
      if(isCurrent()&&!advanced){setMode('playing');setStage('Lendo');}
     }catch(recoveryError){
      if(currentToken!==token.current||currentClip!==clipId.current)return;
      if(isPlaybackPermissionError(recoveryError)){
-      recovering=false;
+      recovering=false;clearWatchdog();
       playWanted.current=false;setMode('paused');setStage('Toque em Continuar para liberar o áudio');return;
      }
+     recovering=false;
+     if(recoveryAttempts<2&&playWanted.current){void recoverPlayback();return;}
      setError(recoveryError instanceof Error?recoveryError.message:'Falha ao recuperar o áudio.');
      stop();
     }
-   };
+   }
    audio.onended=onEnded;
    audio.onerror=()=>{void recoverPlayback();};
    try{
     await audio.play();
+    startWatchdog();
    }catch(firstError){
     if(currentToken!==token.current||currentClip!==clipId.current)return;
     if(isPlaybackPermissionError(firstError)){
-     playWanted.current=false;setMode('paused');setStage('Toque em Continuar para liberar o áudio');return;
+     clearWatchdog();playWanted.current=false;setMode('paused');setStage('Toque em Continuar para liberar o áudio');return;
     }
     const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported/i.test(firstError.message));
     if(!unsupported)throw firstError;
