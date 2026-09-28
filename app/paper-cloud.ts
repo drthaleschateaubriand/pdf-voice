@@ -256,22 +256,30 @@ export async function uploadCloudDocument(file:File,bookId:string,onProgress?:(p
  const contentType=isEpub?'application/epub+zip':'application/pdf';
  const objectPath=session.user.id+'/'+bookId+'/document.'+extension;
  const endpoint='https://cmgwbowbvcwmnluzevoq.storage.supabase.co/storage/v1/upload/resumable';
- const metadata=[
-  'bucketName '+base64Metadata('pdfs'),
-  'objectName '+base64Metadata(objectPath),
-  'contentType '+base64Metadata(contentType)
- ].join(',');
- const create=await fetch(endpoint,{
-  method:'POST',
-  headers:{
-   Authorization:'Bearer '+session.access_token,
-   apikey:SUPABASE_KEY,
-   'Tus-Resumable':'1.0.0',
-   'Upload-Length':String(file.size),
-   'Upload-Metadata':metadata,
-   'x-upsert':'true'
-  }
- });
+ const startUpload=async(type:string)=>{
+  const metadata=[
+   'bucketName '+base64Metadata('pdfs'),
+   'objectName '+base64Metadata(objectPath),
+   'contentType '+base64Metadata(type)
+  ].join(',');
+  return fetch(endpoint,{
+   method:'POST',
+   headers:{
+    Authorization:'Bearer '+session.access_token,
+    apikey:SUPABASE_KEY,
+    'Tus-Resumable':'1.0.0',
+    'Upload-Length':String(file.size),
+    'Upload-Metadata':metadata,
+    'x-upsert':'true'
+   }
+  });
+ };
+ let create=await startUpload(contentType);
+ // The existing bucket predates EPUB support and may be restricted to PDF MIME.
+ // Supabase stores the bytes unchanged, so for that legacy bucket only we retry
+ // EPUB as the bucket-compatible MIME. Download restores application/epub+zip
+ // from the .epub filename before parsing.
+ if(!create.ok&&isEpub)create=await startUpload('application/pdf');
  if(!create.ok){
   let detail='';
   try{detail=await create.text();}catch{}
