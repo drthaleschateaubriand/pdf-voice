@@ -821,6 +821,7 @@ export default function IpadReader(){
   audio.onended=null;audio.onerror=null;audio.pause();audio.preload='auto';
   activeAudioUrlRef.current=url;
   audio.src=url;
+  try{audio.currentTime=0;}catch{}
   audio.playbackRate=speed;
   return audio;
  }
@@ -909,16 +910,27 @@ export default function IpadReader(){
      if(!sameClip()){clearWatchdog();return;}
      if(!playWanted.current||audio.paused){lastProgress=audio.currentTime;stalledTicks=0;return;}
      const now=audio.currentTime;
-     if(audio.ended||(Number.isFinite(audio.duration)&&audio.duration>0&&now>0.2&&now+0.15>=audio.duration)){advanceToNext();return;}
+     // Never advance from the watchdog. Safari can briefly expose stale
+     // ended/currentTime/duration values while this persistent element changes src.
+     // Only the real onended handler is allowed to move to the next sentence.
+     if(audio.ended){
+      clearWatchdog();
+      window.setTimeout(()=>{
+       if(isCurrent()&&!advanced&&!recovering)void recoverPlayback();
+      },180);
+      return;
+     }
      if(now>lastProgress+0.05){lastProgress=now;stalledTicks=0;return;}
      stalledTicks++;
-     if(stalledTicks>=4){clearWatchdog();void recoverPlayback();}
+     if(stalledTicks>=5){clearWatchdog();void recoverPlayback();}
     },1000);
    }
    function onEnded(){
     if(!isCurrent()||advanced||recovering)return;
-    if(audio.currentTime<0.2){void recoverPlayback();return;}
-    if(Number.isFinite(audio.duration)&&audio.duration>0&&audio.currentTime+0.2<audio.duration){void recoverPlayback();return;}
+    const now=audio.currentTime;
+    const duration=audio.duration;
+    if(now<0.25){void recoverPlayback();return;}
+    if(Number.isFinite(duration)&&duration>0&&now+0.12<duration){void recoverPlayback();return;}
     advanceToNext();
    }
    async function recoverPlayback(){
