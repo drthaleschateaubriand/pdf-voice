@@ -312,7 +312,8 @@ export default function IpadReader(){
  }
 
  function fingerprintForFile(file:File){
-  return (file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
+  const isEpub=file.name.toLowerCase().endsWith('.epub')||file.type==='application/epub+zip';
+  return ((isEpub?'epub:':'')+file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
  }
 
  function chooseDocumentForLibrary(book?:CloudLibraryBook){
@@ -334,16 +335,20 @@ export default function IpadReader(){
 
  async function saveCurrentDocumentToCloud(){
   const file=currentDocumentFileRef.current;
-  if(!file||!docRef.current||!cloudSessionRef.current){setAccountMessage('Abra um PDF ou EPUB e entre na sua conta primeiro.');return;}
-  setAccountBusy(true);setUploadProgress(0);setAccountMessage('Preparando envio do livro…');
+  if(!file||!docRef.current||!cloudSessionRef.current){setAccountMessage('Abra um PDF ou EPUB e entre na sua conta primeiro.');return false;}
+  setAccountBusy(true);setUploadProgress(0);setAccountMessage('Preparando envio do livro…');setError('');
   try{
    if(!cloudBookIdRef.current)await syncCurrentBookFromCloud();
    if(!cloudBookIdRef.current)throw new Error('Não foi possível identificar o livro.');
    await uploadCloudPdf(file,cloudBookIdRef.current,p=>setUploadProgress(p));
    setCurrentCloudStored(true);setCloudStatus('Livro salvo na nuvem');setAccountMessage('Documento salvo na nuvem. Agora ele pode ser aberto em outros aparelhos.');
    await refreshCloudLibrary();
-  }catch(e){setAccountMessage(e instanceof Error?e.message:'Falha ao salvar o documento na nuvem.');}
-  finally{setAccountBusy(false);setUploadProgress(null);}
+   return true;
+  }catch(e){
+   const message=e instanceof Error?e.message:'Falha ao salvar o documento na nuvem.';
+   setAccountMessage(message);setError(message);setCloudStatus('Falha ao salvar livro na nuvem');
+   return false;
+  }finally{setAccountBusy(false);setUploadProgress(null);}
  }
 
  async function openLibraryBook(book:CloudLibraryBook){
@@ -853,6 +858,21 @@ export default function IpadReader(){
     if(Number.isInteger(saved.page)&&saved.page>=1&&saved.page<=book.chapters.length)start=saved.page;
     if(Number.isInteger(saved.index)&&saved.index>=0)savedIndex=saved.index;
    }catch{}
+   if(cloudSessionRef.current){
+    try{
+     setCloudStatus('Sincronizando EPUB…');
+     const remote=await openCloudBook({fingerprint:fileKey.current,fileName:file.name,fileSize:file.size,totalPages:book.chapters.length});
+     cloudBookIdRef.current=remote.bookId;setCurrentCloudStored(Boolean(remote.storagePath));
+     const merged=[...new Set([...localMarks,...remote.bookmarks])].sort((a,b)=>a-b);
+     setBookmarks(merged);
+     try{localStorage.setItem('paper-voice-bookmarks:'+fileKey.current,JSON.stringify(merged));}catch{}
+     for(const mark of merged)if(!remote.bookmarks.includes(mark))void addCloudBookmark(remote.bookId,mark).catch(()=>{});
+     if(remote.progress&&remote.progress.page>=1&&remote.progress.page<=book.chapters.length){
+      start=remote.progress.page;savedIndex=remote.progress.sentence_index||0;
+     }
+     setCloudStatus(remote.storagePath?'EPUB sincronizado na nuvem':'EPUB pronto para enviar');
+    }catch{setCloudStatus('Conta conectada · usando EPUB local');}
+   }
    await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
    await extractEpubChapter(start,savedIndex);
   }catch(e){
@@ -1371,7 +1391,12 @@ export default function IpadReader(){
     void (async()=>{
      await openDocument(picked);
      if(mode&&cloudSessionRef.current&&documentKindRef.current){
-      await saveCurrentDocumentToCloud();
+      const saved=await saveCurrentDocumentToCloud();
+      if(saved){
+       await refreshCloudLibrary();
+       setCompact(false);
+       setLibraryOpen(true);
+      }
      }
     })();
    }}/>
