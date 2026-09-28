@@ -3,9 +3,11 @@ import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
 import {addCloudBookmark,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 import {splitIpadSpeech} from '../lib/ipad-speech';
+import {parseEpub,type EpubBookData} from '../lib/epub-reader';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
+type DocumentKind='pdf'|'epub';
 type PdfTextItem={str?:string;hasEOL?:boolean};
 type PdfViewportLike={width:number;height:number};
 type PdfRenderTask={promise:Promise<void>;cancel:()=>void};
@@ -132,6 +134,21 @@ function BookNavigator({doc,pages,current,jumpValue,setJumpValue,onJump,onSelect
  </aside>;
 }
 
+function EpubNavigator({book,current,onSelect,onClose}:{book:EpubBookData;current:number;onSelect:(chapter:number)=>void;onClose:()=>void}){
+ return <aside className="mf-book-nav mf-epub-nav" aria-label="Navegar nos capítulos" style={{width:228,flex:'0 0 228px',minWidth:228,maxWidth:228,height:'68dvh',display:'flex',flexDirection:'column',overflow:'hidden',position:'relative'}}>
+  <div className="mf-book-nav-head">
+   <div className="mf-book-nav-title"><span className="mf-book-nav-icon">☰</span><div><strong>Capítulos</strong><span>{current} de {book.chapters.length}</span></div></div>
+   <button type="button" onClick={onClose} aria-label="Fechar navegação">×</button>
+  </div>
+  <div className="mf-epub-nav-book">{book.title}</div>
+  <div className="mf-epub-nav-list">
+   {book.chapters.map((chapter,i)=><button key={chapter.id+'-'+i} type="button" className={i+1===current?'current':''} aria-current={i+1===current?'page':undefined} onClick={()=>onSelect(i+1)}>
+    <span>{i+1}</span><strong>{chapter.title}</strong>
+   </button>)}
+  </div>
+ </aside>;
+}
+
 function BookCover({book,index=0,compact=false}:{book:CloudLibraryBook;index?:number;compact?:boolean}){
  const palettes=[
   ['#1B3B2B','#f0a25f','#F7F3EB'],
@@ -211,7 +228,9 @@ function loadClassicPdfJs(){
 
 export default function IpadReader(){
  const [doc,setDoc]=useState<PdfDocLike|null>(null);
- const [name,setName]=useState('Nenhum PDF aberto');
+ const [documentKind,setDocumentKind]=useState<DocumentKind|null>(null);
+ const [epubBook,setEpubBook]=useState<EpubBookData|null>(null);
+ const [name,setName]=useState('Nenhum documento aberto');
  const [page,setPage]=useState(1),[pages,setPages]=useState(0),[jumpValue,setJumpValue]=useState('1');
  const [sentences,setSentences]=useState<string[]>([]),[index,setIndex]=useState(0);
  const [mode,setMode]=useState<Mode>('idle'),[error,setError]=useState('');
@@ -230,7 +249,7 @@ export default function IpadReader(){
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentPdfFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
- const docRef=useRef<PdfDocLike|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
+ const docRef=useRef<PdfDocLike|null>(null),documentKindRef=useRef<DocumentKind|null>(null),epubBookRef=useRef<EpubBookData|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
