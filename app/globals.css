@@ -1276,3 +1276,34 @@ body{background:#F7F3EB;color:#1b1b1c}
   max-width:min(82vw,300px) !important;
  }
 }
+
+
+/* Library delete action */
+.pv-library-book-item{
+ position:relative;
+ padding-bottom:34px;
+}
+.pv-library-delete{
+ position:absolute;
+ left:0;
+ bottom:0;
+ border:1px solid #d9b7aa;
+ background:#fffaf7;
+ color:#9a4935;
+ border-radius:999px;
+ padding:6px 10px;
+ font:700 11px/1 "Plus Jakarta Sans",Inter,system-ui,sans-serif;
+ cursor:pointer;
+}
+.pv-library-delete:hover{
+ background:#fff0e9;
+}
+.pv-library-delete:disabled{
+ opacity:.5;
+ cursor:default;
+}
+[data-theme="dark"] .pv-library-delete{
+ background:#271b18;
+ color:#f1b09a;
+ border-color:#704f45;
+}
