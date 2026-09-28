@@ -504,22 +504,39 @@ export default function IpadReader(){
  }
 
  function stopAndClearAudio(){
+  // Hard reset: invalidate every playback chain first so no stale callback can
+  // advance the reader after the user presses Parar.
   token.current++;clipId.current++;playWanted.current=false;
+
+  // Cancel every TTS request that is still generating or prefetching audio.
   for(const controller of audioRequests.current)controller.abort();
   audioRequests.current.clear();
+  pendingAudio.current.clear();
+  pagePrefetch.current.clear();
+
+  // Fully dispose the media element. A fresh one will be created and unlocked
+  // on the next explicit user tap, which prevents an old Safari media pipeline
+  // from continuing or firing a delayed ended/error event.
   const a=audioRef.current;
+  audioRef.current=null;
   if(a){
-   a.pause();a.onended=null;a.onerror=null;
+   a.onended=null;a.onerror=null;
+   try{a.pause();}catch{}
    try{a.currentTime=0;}catch{}
    a.removeAttribute('src');
    try{a.load();}catch{}
   }
+
+  // Remove only the in-memory audio buffer. Persistent cached audio remains
+  // available, so Parar is a playback reset rather than a full cache purge.
   for(const url of cache.current.values())URL.revokeObjectURL(url);
-  cache.current.clear();pendingAudio.current.clear();activeAudioUrlRef.current='';
+  cache.current.clear();
+  activeAudioUrlRef.current='';
+
   clearSpokenHighlight();
   setMode('idle');
   setError('');
-  setStage('Parado · cache temporário limpo');
+  setStage('Parado · motor de áudio reiniciado');
  }
 
  async function refreshAudioCacheStats(){
@@ -891,12 +908,12 @@ export default function IpadReader(){
    }
    return;
   }
-  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Gerando voz…');
+  if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Preparando áudio…');
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
    const current=audioUrl(list[i]);
-   // Each clip now contains up to six sentences, so two clips ahead gives
-   // roughly twelve sentences of buffer without flooding the speech API.
+   // Each clip now contains up to five sentences, so two clips ahead gives
+   // roughly ten sentences of buffer without flooding the speech API.
    for(let ahead=1;ahead<=2;ahead++){
     const nextIndex=i+ahead;
     if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
@@ -1297,6 +1314,13 @@ export default function IpadReader(){
     </select>
    </div>
   </footer>}
+
+  {doc&&mode==='loading'&&<div className="mf-audio-preparing" role="status" aria-live="polite">
+   <div className="mf-audio-preparing-card">
+    <span className="mf-audio-preparing-icon">♫</span>
+    <div><strong>Aguarde, estamos preparando seu áudio</strong><span className="mf-audio-dots" aria-hidden="true"><i/><i/><i/></span></div>
+   </div>
+  </div>}
 
   {accountOpen&&<div className="pv-modal-backdrop" style={{position:'fixed',inset:0,zIndex:70,background:'rgba(30,37,31,.48)',backdropFilter:'blur(8px)',display:'grid',placeItems:'center',padding:18}} onClick={()=>setAccountOpen(false)}>
    <div className="pv-account-card" style={{...card,width:'min(460px,94vw)',padding:0,overflow:'hidden',boxShadow:'0 24px 80px rgba(38,28,17,.24)'}} onClick={e=>e.stopPropagation()}>
