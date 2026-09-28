@@ -587,14 +587,15 @@ export default function IpadReader(){
    return;
   }
 
-  setStage('Reiniciando página '+currentPage+'…');
+  const restartUnit=documentKindRef.current==='epub'?'capítulo':'página';
+  setStage('Reiniciando '+restartUnit+' '+currentPage+'…');
   try{
    await extractPage(currentDoc,currentPage,0);
-   setStage('Página '+currentPage+' reiniciada · pronta para nova leitura');
+   setStage((restartUnit==='capítulo'?'Capítulo ':'Página ')+currentPage+' reiniciado · pronto para nova leitura');
   }catch(e){
-   const message=e instanceof Error?e.message:'Falha ao reiniciar a página.';
+   const message=e instanceof Error?e.message:'Falha ao reiniciar o documento.';
    if(!/Rendering cancelled|cancel/i.test(message))setError(message);
-   setStage('Página reiniciada');
+   setStage(restartUnit==='capítulo'?'Capítulo reiniciado':'Página reiniciada');
   }finally{
    pageRestartingRef.current=false;
   }
@@ -641,7 +642,42 @@ export default function IpadReader(){
   setCompactControls(true);
  },[]);
 
+ async function extractEpubChapter(n:number,restoreIndex=0,preservePlayback=false){
+  const book=epubBookRef.current;
+  if(!book)throw new Error('EPUB não carregado.');
+  const chapterNumber=Math.max(1,Math.min(Math.trunc(n),book.chapters.length));
+  const chapter=book.chapters[chapterNumber-1];
+  if(!chapter)throw new Error('Capítulo EPUB indisponível.');
+  if(!preservePlayback)setStage('Carregando capítulo '+chapterNumber+'…');
+  setError('');
+  clearSelection();
+
+  const list=chapter.clips;
+  textItemsRef.current=list.map(text=>({str:text,hasEOL:true}));
+  sentenceRangesRef.current=list.map((_,i)=>({start:i,end:i}));
+  const requestedIndex=preservePlayback?indexRef.current:restoreIndex;
+  const safeIndex=Math.max(0,Math.min(requestedIndex,Math.max(0,list.length-1)));
+  pageRef.current=chapterNumber;sentencesRef.current=list;indexRef.current=safeIndex;
+  setPage(chapterNumber);setJumpValue(String(chapterNumber));setSentences(list);setIndex(safeIndex);
+
+  await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+  const layer=textLayerRef.current;
+  if(layer){
+   const spans=Array.from(layer.querySelectorAll<HTMLElement>('[data-item]'));
+   textDivsRef.current=spans;
+   sentenceRangesRef.current=spans.map((_,i)=>({start:i,end:i}));
+  }else textDivsRef.current=[];
+
+  if(preservePlayback&&playWanted.current){highlightSentence(safeIndex);setMode('playing');setStage('Lendo');}
+  else setStage(list.length?'Capítulo pronto para leitura':'Capítulo sem texto legível');
+  if(fileKey.current){
+   try{localStorage.setItem('paper-voice-ios:'+fileKey.current,JSON.stringify({page:chapterNumber,index:safeIndex}));}catch{}
+  }
+  return list;
+ }
+
  async function extractPage(current:PdfDocLike,n:number,restoreIndex=0,preservePlayback=false){
+  if(documentKindRef.current==='epub')return extractEpubChapter(n,restoreIndex,preservePlayback);
   if(!preservePlayback)setStage('Carregando página '+n+'…');
   setError('');
   renderTask.current?.cancel();
@@ -746,7 +782,8 @@ export default function IpadReader(){
     standardFontDataUrl:PDFJS_BASE+'standard_fonts/'
    }).promise;
    await docRef.current?.destroy();
-   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompactControls(true);setCompact(true);
+   documentKindRef.current='pdf';setDocumentKind('pdf');epubBookRef.current=null;setEpubBook(null);
+   docRef.current=next;setDoc(next);setName(file.name);setPages(next.numPages);setCompactControls(true);setCompact(true);setPageSidebarOpen(false);
    currentFileRef.current={name:file.name,size:file.size};
    currentPdfFileRef.current=file;
    cloudBookIdRef.current='';setCurrentCloudStored(false);
@@ -785,6 +822,52 @@ export default function IpadReader(){
    setError('Falha ao abrir o PDF em "'+stageName+'": '+(e instanceof Error?e.message:String(e)));
    setStage('Falha');
   }
+ }
+
+ async function openEpub(file:File){
+  stop();pagePrefetch.current.clear();setError('');setStage('Preparando EPUB…');setSentences([]);setIndex(0);
+  try{
+   const book=await parseEpub(file);
+   await docRef.current?.destroy();
+   const adapter:PdfDocLike={
+    numPages:book.chapters.length,
+    getPage:async()=>{throw new Error('Página PDF indisponível em um EPUB.');},
+    destroy:()=>{}
+   };
+   documentKindRef.current='epub';setDocumentKind('epub');epubBookRef.current=book;setEpubBook(book);
+   docRef.current=adapter;setDoc(adapter);setName(book.title||file.name);setPages(book.chapters.length);setCompactControls(true);setCompact(true);setPageSidebarOpen(false);
+   currentFileRef.current={name:file.name,size:file.size};currentPdfFileRef.current=null;
+   cloudBookIdRef.current='';setCurrentCloudStored(false);
+   fileKey.current=('epub:'+file.name+':'+file.size).replace(/[^a-zA-Z0-9._:-]/g,'_');
+
+   let localMarks:number[]=[];
+   try{
+    const savedMarks=JSON.parse(localStorage.getItem('paper-voice-bookmarks:'+fileKey.current)||'[]');
+    localMarks=Array.isArray(savedMarks)?savedMarks.filter((value:unknown)=>Number.isInteger(value)&&Number(value)>=1&&Number(value)<=book.chapters.length).map(Number).sort((a:number,b:number)=>a-b):[];
+    setBookmarks(localMarks);
+   }catch{setBookmarks([]);}
+
+   let start=1,savedIndex=0;
+   try{
+    const saved=JSON.parse(localStorage.getItem('paper-voice-ios:'+fileKey.current)||'{}');
+    if(Number.isInteger(saved.page)&&saved.page>=1&&saved.page<=book.chapters.length)start=saved.page;
+    if(Number.isInteger(saved.index)&&saved.index>=0)savedIndex=saved.index;
+   }catch{}
+   await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+   await extractEpubChapter(start,savedIndex);
+  }catch(e){
+   documentKindRef.current=null;setDocumentKind(null);epubBookRef.current=null;setEpubBook(null);
+   setDoc(null);docRef.current=null;
+   setError('Falha ao abrir o EPUB: '+(e instanceof Error?e.message:String(e)));
+   setStage('Falha');
+  }
+ }
+
+ async function openDocument(file:File){
+  const lower=file.name.toLowerCase();
+  if(lower.endsWith('.epub')||file.type==='application/epub+zip')return openEpub(file);
+  if(lower.endsWith('.pdf')||file.type==='application/pdf'||!file.type)return openFile(file);
+  setError('Formato não suportado. Abra um arquivo PDF ou EPUB.');
  }
 
  function trimTemporaryAudioCache(){
@@ -871,9 +954,14 @@ export default function IpadReader(){
   const d=docRef.current,currentPage=pageRef.current;
   if(!d||currentPage>=d.numPages)return;
   const nextPage=currentPage+1;
-  const key=(fileKey.current||'pdf')+'|'+voice+'|'+nextPage;
+  const key=(fileKey.current||'document')+'|'+voice+'|'+nextPage;
   if(pagePrefetch.current.has(key))return;
   const request=(async()=>{
+   if(documentKindRef.current==='epub'){
+    const next=epubBookRef.current?.chapters[nextPage-1]?.clips||[];
+    if(next[0])await audioUrl(next[0]);
+    return next;
+   }
    const pdfPage=await d.getPage(nextPage);
    const tc=await pdfPage.getTextContent();
    let text='';
