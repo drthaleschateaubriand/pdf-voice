@@ -152,15 +152,37 @@ export async function saveCloudPreferences(prefs:CloudPreferences){
 
 export async function openCloudBook(input:{fingerprint:string;fileName:string;fileSize:number;totalPages:number}):Promise<CloudBookState>{
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
- const bookBody={user_id:session.user.id,fingerprint:input.fingerprint,file_name:input.fileName,file_size:input.fileSize,title:input.fileName.replace(/\.(pdf|epub)$/i,''),total_pages:input.totalPages};
- const upsert=await db('books?on_conflict=user_id,fingerprint&select=id,storage_path',{
-  method:'POST',
-  headers:{Prefer:'resolution=merge-duplicates,return=representation'},
-  body:JSON.stringify(bookBody)
- });
- if(!upsert.res.ok)throw new Error('Falha ao sincronizar o livro.');
- const books=await upsert.res.json() as Array<{id:string;storage_path?:string|null}>;
- const bookId=books[0]?.id;
+ const metadata={file_name:input.fileName,file_size:input.fileSize,title:input.fileName.replace(/\.(pdf|epub)$/i,''),total_pages:input.totalPages};
+
+ // Read first, then update. This deliberately avoids an upsert on an existing
+ // book because a storage_path must never be cleared while syncing metadata.
+ const existingResponse=await db('books?fingerprint=eq.'+encodeURIComponent(input.fingerprint)+'&select=id,storage_path&limit=1');
+ if(!existingResponse.res.ok)throw new Error('Falha ao localizar o livro na nuvem.');
+ let books=await existingResponse.res.json() as Array<{id:string;storage_path?:string|null}>;
+ let bookId=books[0]?.id;
+ let storagePath=books[0]?.storage_path||null;
+
+ if(bookId){
+  const update=await db('books?id=eq.'+encodeURIComponent(bookId),{
+   method:'PATCH',
+   headers:{Prefer:'return=representation'},
+   body:JSON.stringify(metadata)
+  });
+  if(!update.res.ok)throw new Error('Falha ao atualizar os dados do livro.');
+  const rows=await update.res.json() as Array<{id:string;storage_path?:string|null}>;
+  storagePath=rows[0]?.storage_path??storagePath;
+ }else{
+  const insert=await db('books?select=id,storage_path',{
+   method:'POST',
+   headers:{Prefer:'return=representation'},
+   body:JSON.stringify({user_id:session.user.id,fingerprint:input.fingerprint,...metadata})
+  });
+  if(!insert.res.ok)throw new Error('Falha ao sincronizar o livro.');
+  books=await insert.res.json() as Array<{id:string;storage_path?:string|null}>;
+  bookId=books[0]?.id;
+  storagePath=books[0]?.storage_path||null;
+ }
+
  if(!bookId)throw new Error('Livro sem identificador.');
  const [progressResponse,bookmarkResponse]=await Promise.all([
   db('reading_progress?book_id=eq.'+encodeURIComponent(bookId)+'&select=page,sentence_index,updated_at&limit=1'),
@@ -168,7 +190,7 @@ export async function openCloudBook(input:{fingerprint:string;fileName:string;fi
  ]);
  const progressRows=progressResponse.res.ok?await progressResponse.res.json() as Array<{page:number;sentence_index:number;updated_at?:string}>:[];
  const bookmarkRows=bookmarkResponse.res.ok?await bookmarkResponse.res.json() as Array<{page:number}>:[];
- return {bookId,storagePath:books[0]?.storage_path||null,progress:progressRows[0]||null,bookmarks:bookmarkRows.map(x=>x.page)};
+ return {bookId,storagePath,progress:progressRows[0]||null,bookmarks:bookmarkRows.map(x=>x.page)};
 }
 
 export async function saveCloudProgress(bookId:string,page:number,sentenceIndex:number){
@@ -288,10 +310,12 @@ export async function uploadCloudDocument(file:File,bookId:string,onProgress?:(p
  }
  const update=await db('books?id=eq.'+encodeURIComponent(bookId),{
   method:'PATCH',
-  headers:{Prefer:'return=minimal'},
+  headers:{Prefer:'return=representation'},
   body:JSON.stringify({storage_path:objectPath,file_name:file.name,file_size:file.size,title:file.name.replace(/\.(pdf|epub)$/i,'')})
  });
  if(!update.res.ok)throw new Error('Documento enviado, mas não foi possível atualizar a biblioteca.');
+ const updated=await update.res.json() as Array<{storage_path?:string|null}>;
+ if(updated[0]?.storage_path!==objectPath)throw new Error('O arquivo foi enviado, mas o vínculo com a biblioteca não foi confirmado.');
  return objectPath;
 }
 
