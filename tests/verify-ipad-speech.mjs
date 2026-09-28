@@ -6,16 +6,16 @@ assert.deepEqual(splitIpadSpeech(text),[
  'Dr. Silva avaliou a paciente. A pressão foi 120/80 mmHg. O exame mostrou melhora! Próxima conduta?'
 ]);
 
-const six='Um. Dois. Três. Quatro. Cinco. Seis.';
-assert.deepEqual(splitIpadSpeech(six),[six]);
+const five='Um. Dois. Três. Quatro. Cinco.';
+assert.deepEqual(splitIpadSpeech(five),[five]);
 
-const seven='Um. Dois. Três. Quatro. Cinco. Seis. Sete.';
-assert.deepEqual(splitIpadSpeech(seven),[
- 'Um. Dois. Três. Quatro. Cinco. Seis.',
- 'Sete.'
+const six='Um. Dois. Três. Quatro. Cinco. Seis.';
+assert.deepEqual(splitIpadSpeech(six),[
+ 'Um. Dois. Três. Quatro. Cinco.',
+ 'Seis.'
 ]);
 
-assert.equal(MAX_IPAD_SENTENCES_PER_CLIP,6);
+assert.equal(MAX_IPAD_SENTENCES_PER_CLIP,5);
 assert.deepEqual(splitIpadSpeech('Dose 20 mg. ao dia. Depois continuar.'),[
  'Dose 20 mg. ao dia. Depois continuar.'
 ]);
@@ -28,9 +28,9 @@ assert.equal(chunks.join(' '),long);
 
 const many=Array.from({length:18},(_,i)=>'Frase '+(i+1)+'.').join(' ');
 const grouped=splitIpadSpeech(many);
-assert.equal(grouped.length,3);
+assert.equal(grouped.length,4);
 assert.ok(grouped.every(chunk=>chunk.split('.').filter(Boolean).length<=MAX_IPAD_SENTENCES_PER_CLIP));
 assert.equal(grouped.join(' '),many);
 
 assert.equal(splitIpadSpeech('  Primeira frase.   Segunda frase. ').join(' '),'Primeira frase. Segunda frase.');
-console.log('PASS: iPad speech groups up to six sentences per clip without losing text.');
+console.log('PASS: iPad speech groups up to five sentences per clip without losing text.');
