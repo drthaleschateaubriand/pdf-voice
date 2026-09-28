@@ -1253,14 +1253,15 @@ export default function IpadReader(){
  async function goPage(n:number){
   const d=docRef.current;if(!d)return;
   const target=Math.trunc(n);
-  if(!Number.isFinite(target)||target<1||target>d.numPages){setError('Digite uma página entre 1 e '+d.numPages+'.');return;}
+  const unit=documentKindRef.current==='epub'?'capítulo':'página';
+  if(!Number.isFinite(target)||target<1||target>d.numPages){setError('Digite um '+unit+' entre 1 e '+d.numPages+'.');return;}
   stop();
-  try{await extractPage(d,target);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar página.');}
+  try{await extractPage(d,target);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar '+unit+'.');}
  }
 
  function jumpToPage(){
   const target=Number(jumpValue.replace(/[^0-9]/g,''));
-  if(!target){setError('Digite o número da página.');return;}
+  if(!target){setError(documentKindRef.current==='epub'?'Digite o número do capítulo.':'Digite o número da página.');return;}
   void goPage(target);
  }
 
@@ -1295,7 +1296,7 @@ export default function IpadReader(){
  }
 
  useEffect(()=>{
-  if(!doc)return;
+  if(!doc||documentKind!=='pdf')return;
   let timer:number|undefined;
   const rerender=()=>{
    if(timer)window.clearTimeout(timer);
@@ -1306,7 +1307,7 @@ export default function IpadReader(){
   };
   window.addEventListener('resize',rerender);
   return()=>{if(timer)window.clearTimeout(timer);window.removeEventListener('resize',rerender);};
- },[doc,compact]);
+ },[doc,compact,documentKind]);
 
  useEffect(()=>{
   if(!doc)return;
@@ -1330,6 +1331,16 @@ export default function IpadReader(){
  }
 
  const active=sentences[index]||'';
+ const isEpub=documentKind==='epub';
+ const currentEpubChapter=isEpub?epubBook?.chapters[page-1]||null:null;
+ let epubClipCursor=0;
+ const epubRenderBlocks=currentEpubChapter?.blocks.map(block=>{
+  const start=epubClipCursor;epubClipCursor+=block.clips.length;
+  return {...block,start};
+ })||[];
+ const locationWord=isEpub?'cap.':'pág.';
+ const unitWord=isEpub?'capítulo':'página';
+ const unitWordTitle=isEpub?'Capítulo':'Página';
 
  return <main className="mf-app-shell" style={{...shell,height:compact&&doc?'100dvh':undefined,overflow:compact&&doc?'hidden':undefined}}>
   {(!compact||!doc)&&<header className="paper-voice-topbar" style={top}>
@@ -1337,7 +1348,7 @@ export default function IpadReader(){
     <PaperVoiceMark size={42}/>
     <div style={{minWidth:0}}>
      <div style={{fontFamily:'Merriweather,Georgia,serif',fontWeight:800,fontSize:24,lineHeight:1,color:'#1B3B2B'}}>Meu <span style={{color:'#E76F3B'}}>Foco</span></div>
-     <div style={{...small,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pages?name+' · pág. '+page+' de '+pages:'Leitura & Atenção Serena'}</div>
+     <div style={{...small,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pages?name+' · '+locationWord+' '+page+' de '+pages:'Leitura & Atenção Serena'}</div>
     </div>
    </div>
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
@@ -1347,19 +1358,23 @@ export default function IpadReader(){
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
     <button className="mf-theme-toggle" style={button} type="button" aria-pressed={darkMode} title={darkMode?'Usar modo dia':'Usar modo noite'} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
     <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
-    <button style={primary} onClick={()=>fileRef.current?.click()}>Abrir PDF</button>
+    <button style={primary} onClick={()=>fileRef.current?.click()}>Abrir documento</button>
    </nav>
-   <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf" onChange={e=>{
+   <input ref={fileRef} hidden type="file" accept="application/pdf,.pdf,application/epub+zip,.epub" onChange={e=>{
     const picked=e.target.files?.[0];e.currentTarget.value='';if(!picked)return;
     const mode=cloudPickerModeRef.current,target=cloudPickerFingerprintRef.current;
     cloudPickerModeRef.current=null;cloudPickerFingerprintRef.current='';
+    if(mode&&(/\.epub$/i.test(picked.name)||picked.type==='application/epub+zip')){
+     setError('A biblioteca na nuvem ainda aceita PDF. Para ler EPUB, abra-o diretamente pelo botão Abrir documento.');
+     setLibraryOpen(true);return;
+    }
     if(mode==='attach'&&target&&fingerprintForFile(picked)!==target){
      setError('Este não parece ser o mesmo PDF salvo na biblioteca. Selecione "'+(libraryBooks.find(b=>b.fingerprint===target)?.file_name||'o arquivo correspondente')+'".');
      setLibraryOpen(true);return;
     }
     void (async()=>{
-     await openFile(picked);
-     if(mode&&cloudSessionRef.current){
+     await openDocument(picked);
+     if(mode&&cloudSessionRef.current&&documentKindRef.current==='pdf'){
       await saveCurrentPdfToCloud();
      }
     })();
@@ -1369,10 +1384,11 @@ export default function IpadReader(){
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
    <div className={doc&&pageSidebarOpen&&!compact?'mf-reader-layout pages-open':'mf-reader-layout'} style={{position:'relative',display:'flex',alignItems:'stretch',gap:12,minWidth:0}}>
-    {doc&&pageSidebarOpen&&!compact&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}} onClose={()=>setPageSidebarOpen(false)}/>}
+    {doc&&pageSidebarOpen&&!compact&&documentKind==='pdf'&&<BookNavigator doc={doc} pages={pages} current={page} jumpValue={jumpValue} setJumpValue={setJumpValue} onJump={jumpToPage} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}} onClose={()=>setPageSidebarOpen(false)}/>}
+    {doc&&pageSidebarOpen&&!compact&&documentKind==='epub'&&epubBook&&<EpubNavigator book={epubBook} current={page} onSelect={target=>{void goPage(target);if(window.matchMedia('(max-width: 850px)').matches)setPageSidebarOpen(false);}} onClose={()=>setPageSidebarOpen(false)}/>}
     <div className="mf-reader-main" style={{minWidth:0,flex:1}}>
-   <div ref={canvasWrap} className="mf-reader-canvas-wrap" style={compact&&doc?{height:'100dvh',width:'100%',overflow:'hidden',background:'#111',display:'grid',placeItems:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
-    <div ref={pageStageRef} style={{position:'relative',display:doc?'block':'none',margin:'0 auto',flex:'0 0 auto'}}>
+   <div ref={canvasWrap} className={isEpub?'mf-reader-canvas-wrap mf-epub-wrap':'mf-reader-canvas-wrap'} style={compact&&doc?{height:'100dvh',width:'100%',overflow:isEpub?'auto':'hidden',background:isEpub?'#F7F3EB':'#111',display:isEpub?'block':'grid',placeItems:isEpub?undefined:'center'}:{...card,padding:8,minHeight:'58dvh',height:'68dvh',overflow:'auto'}}>
+    {documentKind==='pdf'&&<div ref={pageStageRef} style={{position:'relative',display:'block',margin:'0 auto',flex:'0 0 auto'}}>
      <canvas ref={canvasRef} className="mf-pdf-canvas" aria-label={'Página '+page+' do PDF'} style={{position:'absolute',inset:0,display:'block',background:'white',width:'100%',height:'100%'}}/>
      <div
       ref={textLayerRef}
@@ -1381,17 +1397,34 @@ export default function IpadReader(){
       onTouchEnd={()=>window.setTimeout(captureSelection,0)}
       onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
      />
-    </div>
+    </div>}
+    {documentKind==='epub'&&currentEpubChapter&&<article
+     ref={textLayerRef}
+     className="mf-epub-reader"
+     aria-label={'Capítulo '+page+': '+currentEpubChapter.title}
+     onPointerUp={()=>window.setTimeout(captureSelection,0)}
+     onTouchEnd={()=>window.setTimeout(captureSelection,0)}
+     onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
+    >
+     <div className="mf-epub-kicker">CAPÍTULO {page} DE {pages}</div>
+     <h1>{currentEpubChapter.title}</h1>
+     {epubRenderBlocks.map((block,blockIndex)=>{
+      const content=block.clips.map((clip,clipIndex)=><span key={clipIndex} data-item={block.start+clipIndex} className="mf-epub-clip">{clip}{clipIndex<block.clips.length-1?' ':''}</span>);
+      if(block.kind==='heading')return <h2 key={blockIndex}>{content}</h2>;
+      if(block.kind==='list')return <div key={blockIndex} className="mf-epub-list-item"><span className="mf-epub-bullet">•</span><span>{content}</span></div>;
+      return <p key={blockIndex}>{content}</p>;
+     })}
+    </article>}
     {!doc&&<div className="pv-welcome pv-meu-foco-welcome" style={{width:'100%',boxSizing:'border-box',maxWidth:1220,margin:'0 auto',padding:'clamp(18px,3vw,34px)'}}>
      <section className="pv-focus-intro">
       <div className="pv-focus-badge"><span>●</span> LEITURA SERENA &amp; APOIO AO TDAH</div>
       <h1 className="pv-focus-title">Leia mais.<br/><em>Distraia-se menos.</em></h1>
       <div className="pv-focus-script">“Leitura guiada para uma mente que não gosta de ficar parada.”</div>
-      <p className="pv-focus-lead">Transforme livros e PDFs em uma rotina suave com leitura guiada por voz, controle calmo de ritmo e recursos pensados para cultivar foco sem ansiedade.</p>
+      <p className="pv-focus-lead">Transforme livros, PDFs e EPUBs em uma rotina suave com leitura guiada por voz, controle calmo de ritmo e recursos pensados para cultivar foco sem ansiedade.</p>
       <div className="pv-focus-features">
        <div className="pv-focus-feature"><div className="pv-feature-icon">◉</div><strong>Voz Guiada &amp; Ritmo</strong><span>Destaque dinâmico no seu próprio andamento.</span></div>
        <div className="pv-focus-feature"><div className="pv-feature-icon pv-green">▣</div><strong>Sem Distrações</strong><span>Ambiente silencioso, sem sobrecarga visual.</span></div>
-       <div className="pv-focus-feature"><div className="pv-feature-icon">▤</div><strong>Sua Biblioteca</strong><span>Sincronize PDFs, progresso e marcadores.</span></div>
+       <div className="pv-focus-feature"><div className="pv-feature-icon">▤</div><strong>Sua Biblioteca</strong><span>Sincronize sua leitura, progresso e marcadores.</span></div>
       </div>
       <div className="pv-focus-quote"><span className="pv-quote-icon">☕</span><div><strong>“Ler também é um jeito de cuidar da mente.”</strong><span>Pequenos momentos diários produzem grandes avanços.</span></div></div>
      </section>
@@ -1411,7 +1444,7 @@ export default function IpadReader(){
       </div>}
       <div className="pv-entry-actions">
        <button type="button" style={{...primary,width:'100%',padding:'14px 20px',fontSize:16}} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?'Minha conta':'Entrar no Meu Foco'} <span>→</span></button>
-       <button type="button" style={{...button,width:'100%',padding:'13px 20px',fontSize:15}} onClick={()=>fileRef.current?.click()}>Experimentar Modo Convidado · Abrir PDF</button>
+       <button type="button" style={{...button,width:'100%',padding:'13px 20px',fontSize:15}} onClick={()=>fileRef.current?.click()}>Experimentar Modo Convidado · Abrir PDF ou EPUB</button>
        {cloudSession&&<button type="button" style={{...button,width:'100%',padding:'13px 20px'}} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca{libraryBooks.length?' · '+libraryBooks.length:''}</button>}
       </div>
       <div className="pv-entry-divider"><span>MEU FOCO</span></div>
@@ -1423,15 +1456,15 @@ export default function IpadReader(){
    </div>
    {doc&&!compact&&<div className="mf-current-excerpt" style={{...card,background:'#fff7dc'}}>
     <div style={{...small,marginBottom:5}}>TRECHO ATUAL {sentences.length?index+1:0}/{sentences.length}</div>
-    <div style={{fontFamily:'Georgia,serif',fontSize:18,lineHeight:1.55}}>{active||'Esta página não possui texto selecionável. Se for uma página digitalizada, será necessário OCR.'}</div>
+    <div style={{fontFamily:'Georgia,serif',fontSize:18,lineHeight:1.55}}>{active||(isEpub?'Este capítulo não possui texto legível.':'Esta página não possui texto selecionável. Se for uma página digitalizada, será necessário OCR.')}</div>
    </div>}
   </section>
 
   {!compact&&<footer className="mf-reader-footer" style={{position:'sticky',bottom:0,zIndex:10,background:'#fffdf8',borderTop:'1px solid #d8d0c2',padding:'9px 10px calc(9px + env(safe-area-inset-bottom, 0px))'}}>
    <form onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,marginBottom:8}}>
-    <span style={{...small,fontWeight:600}}>Ir para página</span>
+    <span style={{...small,fontWeight:600}}>{isEpub?'Ir para capítulo':'Ir para página'}</span>
     <input
-     aria-label="Número da página"
+     aria-label={isEpub?'Número do capítulo':'Número da página'}
      inputMode="numeric"
      pattern="[0-9]*"
      value={jumpValue}
@@ -1443,22 +1476,22 @@ export default function IpadReader(){
     <button type="submit" style={{...button,padding:'7px 12px'}} disabled={!doc}>Ir</button>
    </form>
    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,flexWrap:'wrap'}}>
-    <button style={button} disabled={!doc||page<=1} onClick={()=>void goPage(page-1)}>Página anterior</button>
+    <button style={button} disabled={!doc||page<=1} onClick={()=>void goPage(page-1)}>{isEpub?'Capítulo anterior':'Página anterior'}</button>
     <button style={button} disabled={!sentences.length||index<=0} onClick={()=>moveSentence(-1)}>Trecho anterior</button>
     <button style={primary} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} disabled={!doc} onClick={stopAndClearAudio}>Parar</button>
     <button style={button} disabled={!sentences.length||index>=sentences.length-1} onClick={()=>moveSentence(1)}>Próximo trecho</button>
-    <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>Próxima página</button>
+    <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>{isEpub?'Próximo capítulo':'Próxima página'}</button>
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:8}}>
     <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);persistPreferences({voice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'28%'}}>
      {voices.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
     </select>
-    <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Desmarcar página':'Marcar página'}</button>
+    <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleBookmark}>{bookmarks.includes(page)?(isEpub?'Desmarcar capítulo':'Desmarcar página'):(isEpub?'Marcar capítulo':'Marcar página')}</button>
     <button type="button" style={{...button,padding:'7px 10px',whiteSpace:'nowrap'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque ligado':'Destaque desligado'}</button>
     <select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'7px 9px',maxWidth:'25%'}}>
      <option value="">{bookmarks.length?'Marcadores ('+bookmarks.length+')':'Sem marcadores'}</option>
-     {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
+     {bookmarks.map(n=><option key={n} value={n}>{isEpub?'Capítulo':'Página'} {n}</option>)}
     </select>
     <span style={{...small,textAlign:'center',flex:1}}>{stage}{isAppleTouch()?' · Safari/iPad':''}</span>
     <select aria-label="Velocidade" value={speed} onChange={e=>{const next=Number(e.target.value);setSpeed(next);persistPreferences({speed:next});}} style={{...button,padding:'7px 9px'}}>
@@ -1491,7 +1524,7 @@ export default function IpadReader(){
       <div style={{fontWeight:800,color:'#1B3B2B'}}>{cloudSession.user.email||'Conta conectada'}</div>
       <div style={{...small,marginTop:5}}>Página, trecho, marcadores, voz, velocidade e destaque ficam sincronizados.</div>
      </div>
-     {doc&&<button type="button" style={currentCloudStored?button:primary} disabled={accountBusy||currentCloudStored} onClick={()=>void saveCurrentPdfToCloud()}>{currentCloudStored?'Livro atual salvo na nuvem':uploadProgress!==null?'Enviando '+uploadProgress+'%':'Salvar livro atual na nuvem'}</button>}
+     {doc&&documentKind==='pdf'&&<button type="button" style={currentCloudStored?button:primary} disabled={accountBusy||currentCloudStored} onClick={()=>void saveCurrentPdfToCloud()}>{currentCloudStored?'Livro atual salvo na nuvem':uploadProgress!==null?'Enviando '+uploadProgress+'%':'Salvar livro atual na nuvem'}</button>}
      {accountMessage&&<div style={{...small,padding:'4px 2px'}}>{accountMessage}</div>}
      <button type="button" style={button} onClick={()=>{setAccountOpen(false);void refreshCloudLibrary();setLibraryOpen(true);}}>Abrir minha biblioteca</button>
      <button type="button" style={{...button,color:'#8a4932'}} disabled={accountBusy} onClick={()=>void handleSignOut()}>{accountBusy?'Aguarde…':'Sair da conta'}</button>
@@ -1585,17 +1618,17 @@ export default function IpadReader(){
 
   {compact&&doc&&compactControls&&<>
    <div className="paper-voice-compact-top" style={{position:'fixed',top:'calc(8px + env(safe-area-inset-top, 0px))',left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(20,20,20,.78)',color:'white',borderRadius:16,padding:'5px 7px',fontSize:12,display:'flex',alignItems:'center',gap:6}}>
-    <span style={{padding:'0 3px'}}>Página {page} de {pages}</span>
+    <span style={{padding:'0 3px'}}>{isEpub?'Capítulo':'Página'} {page} de {pages}</span>
     <button type="button" onPointerDown={e=>e.preventDefault()} style={{...button,padding:'5px 8px',fontSize:12}} onClick={toggleBookmark}>{bookmarks.includes(page)?'Marcada':'Marcar'}</button>
     {bookmarks.length>0&&<select aria-label="Marcadores" value="" onChange={e=>openBookmark(e.target.value)} style={{...button,padding:'5px 7px',fontSize:12,width:'auto',margin:0}}>
      <option value="">Marcadores</option>
-     {bookmarks.map(n=><option key={n} value={n}>Página {n}</option>)}
+     {bookmarks.map(n=><option key={n} value={n}>{isEpub?'Capítulo':'Página'} {n}</option>)}
     </select>}
    </div>
    <form className="mf-compact-controls" onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
     <input
-     aria-label="Número da página"
+     aria-label={isEpub?'Número do capítulo':'Número da página'}
      inputMode="numeric"
      pattern="[0-9]*"
      value={jumpValue}
