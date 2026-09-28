@@ -354,19 +354,19 @@ async function deleteStorageObject(path:string,token:string){
   method:'DELETE',
   headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+token}
  });
- if(!res.ok&&res.status!==404){
-  let detail='';
-  try{detail=await res.text();}catch{}
-  throw new Error('Não foi possível excluir o arquivo salvo na nuvem.'+(detail?' '+detail:''));
- }
+ return res.ok||res.status===404;
 }
 
 export async function deleteCloudBook(book:Pick<CloudLibraryBook,'id'|'storage_path'>){
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
 
- // Delete the Storage object through the Storage API first. This avoids
- // orphaning a file after its library record has been removed.
- if(book.storage_path)await deleteStorageObject(book.storage_path,session.access_token);
+ // Try to remove the physical object first. A legacy Storage policy may not
+ // allow DELETE yet, so a failure here must not trap a broken library record.
+ let storageDeleted=true;
+ if(book.storage_path){
+  try{storageDeleted=await deleteStorageObject(book.storage_path,session.access_token);}
+  catch{storageDeleted=false;}
+ }
 
  // Remove dependent rows explicitly so deletion works even if the database
  // foreign keys were created without ON DELETE CASCADE.
@@ -376,4 +376,5 @@ export async function deleteCloudBook(book:Pick<CloudLibraryBook,'id'|'storage_p
  if(!marks.res.ok)throw new Error('Não foi possível excluir os marcadores deste livro.');
  const record=await db('books?id=eq.'+encodeURIComponent(book.id),{method:'DELETE'});
  if(!record.res.ok)throw new Error('Não foi possível excluir o livro da biblioteca.');
+ return {storageDeleted};
 }
