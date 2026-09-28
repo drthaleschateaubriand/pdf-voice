@@ -819,10 +819,17 @@ export default function IpadReader(){
  function prepareAudioElement(url:string){
   const audio=audioRef.current||new Audio();audioRef.current=audio;
   audio.onended=null;audio.onerror=null;audio.pause();audio.preload='auto';
+  // Safari/iPad can keep stale decoder state when the same media element swaps
+  // between blob URLs. Fully detach the previous source before attaching the next.
+  if(audio.getAttribute('src')){
+   audio.removeAttribute('src');
+   try{audio.load();}catch{}
+  }
   activeAudioUrlRef.current=url;
   audio.src=url;
-  try{audio.currentTime=0;}catch{}
   audio.playbackRate=speed;
+  try{audio.load();}catch{}
+  try{audio.currentTime=0;}catch{}
   return audio;
  }
 
@@ -1021,16 +1028,36 @@ export default function IpadReader(){
  }
 
  async function testVoice(){
+  const sample='Teste de voz do leitor. Tudo certo.';
   setError('');setStage('Testando voz…');
   unlockAudioOnTap();
   try{
-   const url=await audioUrl('Teste de voz do leitor. Tudo certo.');
-   let a=audioRef.current;
-   if(!a){a=new Audio();a.preload='auto';audioRef.current=a;}
-   a.pause();a.onended=null;a.onerror=null;a.src=url;a.playbackRate=1;
-   await a.play();setStage('Voz OpenAI funcionando');
+   const playSample=async(forceFresh=false)=>{
+    const url=await audioUrl(sample,forceFresh);
+    const a=prepareAudioElement(url);
+    a.playbackRate=1;
+    await a.play();
+   };
+   try{
+    await playSample(false);
+   }catch(firstError){
+    const unsupported=firstError instanceof DOMException&&(firstError.name==='NotSupportedError'||/not supported|operation is not supported/i.test(firstError.message));
+    if(!unsupported)throw firstError;
+    // A bad/stale blob can remain in IndexedDB and make every voice test fail.
+    // Detach it, remove both caches and regenerate the sample once.
+    const a=audioRef.current;
+    if(a){
+     a.pause();a.onended=null;a.onerror=null;a.removeAttribute('src');
+     try{a.load();}catch{}
+    }
+    activeAudioUrlRef.current='';
+    await invalidateAudioForText(sample);
+    await playSample(true);
+   }
+   setStage('Voz OpenAI funcionando');
   }catch(e){
-   setError(e instanceof Error?e.message:'Falha no teste de voz.');
+   const message=e instanceof Error?e.message:'Falha no teste de voz.';
+   setError(/not supported|operation is not supported/i.test(message)?'O Safari não conseguiu abrir o áudio gerado. O cache foi renovado; toque em Testar voz novamente.':message);
    setStage('Falha no teste de voz');
   }
  }
