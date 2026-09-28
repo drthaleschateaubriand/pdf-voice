@@ -235,7 +235,7 @@ export default function IpadReader(){
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
  const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),pagePrefetch=useRef(new Map<string,Promise<string[]>>()),fileKey=useRef('');
- const refreshPageAudioRef=useRef(0),refreshedAudioTextsRef=useRef(new Set<string>()),pageRestartingRef=useRef(false);
+ const pageRestartingRef=useRef(false);
 
  useEffect(()=>{
   const nav=navigator as Navigator & {standalone?:boolean};
@@ -538,6 +538,7 @@ export default function IpadReader(){
   pageRestartingRef.current=true;
   const currentDoc=docRef.current;
   const currentPage=pageRef.current;
+  const problematicText=sentencesRef.current[indexRef.current]||'';
 
   // Equivalent to refreshing the reader page without losing the opened PDF.
   // Everything that can still speak is destroyed before rebuilding the page.
@@ -557,11 +558,9 @@ export default function IpadReader(){
   indexRef.current=0;
   setError('');
 
-  // Audio generated for this page is deliberately regenerated once after the
-  // restart. That replaces a possibly incomplete/stale persistent TTS clip
-  // without throwing away cached audio from the rest of the book.
-  refreshPageAudioRef.current=currentPage;
-  refreshedAudioTextsRef.current.clear();
+  // Refresh only the clip that was active when the problem occurred. Rebuilding
+  // every clip on the page caused avoidable pauses between passages.
+  if(problematicText)await invalidateAudioForText(problematicText);
 
   if(!currentDoc){
    setStage('Parado · motor de áudio reiniciado');
@@ -590,8 +589,6 @@ export default function IpadReader(){
   const ok=typeof window==='undefined'||window.confirm('Apagar todo o áudio salvo neste aparelho? O Meu Foco poderá gerar esses trechos novamente quando necessário.');
   if(!ok)return;
   disposeAudioEngine();
-  refreshPageAudioRef.current=0;
-  refreshedAudioTextsRef.current.clear();
   await clearPersistentAudioCache();
   setAudioCacheStats({entries:0,bytes:0});
   setAccountMessage('Áudio salvo neste aparelho foi apagado.');
@@ -839,13 +836,15 @@ export default function IpadReader(){
   if(!forceFresh){
    const ready=cache.current.get(key);
    if(ready)return Promise.resolve(ready);
-   const pending=pendingAudio.current.get(key);
-   if(pending)return pending;
   }
+  // A fresh regeneration can also be prefetched. Always dedupe by clip so the
+  // reader never launches a second request for the same text while one is active.
+  const pending=pendingAudio.current.get(key);
+  if(pending)return pending;
   const request=loadAudioUrl(text,forceFresh).finally(()=>{
    if(pendingAudio.current.get(key)===request)pendingAudio.current.delete(key);
   });
-  if(!forceFresh)pendingAudio.current.set(key,request);
+  pendingAudio.current.set(key,request);
   return request;
  }
 
@@ -930,7 +929,6 @@ export default function IpadReader(){
       if(next.length&&playWanted.current&&currentToken===token.current){
        clearSpokenHighlight();
        textDivsRef.current=[];sentenceRangesRef.current=[];
-       refreshPageAudioRef.current=0;refreshedAudioTextsRef.current.clear();
        pageRef.current=nextPage;sentencesRef.current=next;indexRef.current=0;
        setPage(nextPage);setJumpValue(String(nextPage));setSentences(next);setIndex(0);
        void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
@@ -943,7 +941,6 @@ export default function IpadReader(){
      }catch{}
     }
     try{
-     refreshPageAudioRef.current=0;refreshedAudioTextsRef.current.clear();
      const next=await extractPage(d,nextPage);
      if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
     }catch(e){
@@ -958,22 +955,15 @@ export default function IpadReader(){
   if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Preparando áudio…');
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
-   const shouldRefreshCurrent=refreshPageAudioRef.current===pageRef.current&&!refreshedAudioTextsRef.current.has(list[i]);
-   const current=audioUrl(list[i],shouldRefreshCurrent);
-   // Each clip now contains up to five sentences, so two clips ahead gives
-   // roughly ten sentences of buffer without flooding the speech API.
-   for(let ahead=1;ahead<=2;ahead++){
+   const current=audioUrl(list[i]);
+   // Keep three clips ahead warm. With five sentences per clip this gives a
+   // generous runway while avoiding the page-wide forced regeneration that
+   // introduced audible gaps after the hard reset.
+   for(let ahead=1;ahead<=3;ahead++){
     const nextIndex=i+ahead;
-    if(nextIndex<list.length){
-     const nextText=list[nextIndex];
-     const shouldRefreshAhead=refreshPageAudioRef.current===pageRef.current&&!refreshedAudioTextsRef.current.has(nextText);
-     void audioUrl(nextText,shouldRefreshAhead).then(()=>{
-      if(shouldRefreshAhead)refreshedAudioTextsRef.current.add(nextText);
-     }).catch(()=>{});
-    }
+    if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
    }
    const url=await current;
-   if(shouldRefreshCurrent)refreshedAudioTextsRef.current.add(list[i]);
    if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
    let recovering=false,advanced=false,recoveryAttempts=0,watchdog:number|undefined,lastProgress=0,stalledTicks=0;
@@ -1157,10 +1147,6 @@ export default function IpadReader(){
   const d=docRef.current;if(!d)return;
   const target=Math.trunc(n);
   if(!Number.isFinite(target)||target<1||target>d.numPages){setError('Digite uma página entre 1 e '+d.numPages+'.');return;}
-  if(target!==refreshPageAudioRef.current){
-   refreshPageAudioRef.current=0;
-   refreshedAudioTextsRef.current.clear();
-  }
   stop();
   try{await extractPage(d,target);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar página.');}
  }
