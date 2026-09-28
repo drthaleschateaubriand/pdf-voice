@@ -26,7 +26,8 @@ assert.ok(chunks.length>1);
 assert.ok(chunks.every(chunk=>chunk.length<=MAX_IPAD_SPEECH_CHARS));
 assert.equal(chunks.join(' '),long);
 
-const many=Array.from({length:18},(_,i)=>'Frase '+(i+1)+'.').join(' ');
+const labels=['alfa','bravo','charlie','delta','eco','foxtrot','golf','hotel','india','juliett','kilo','lima','mike','november','oscar','papa','quebec','romeo'];
+const many=labels.map(label=>'Frase '+label+' completa.').join(' ');
 const grouped=splitIpadSpeech(many);
 assert.equal(grouped.length,4);
 assert.ok(grouped.every(chunk=>chunk.split('.').filter(Boolean).length<=MAX_IPAD_SENTENCES_PER_CLIP));
