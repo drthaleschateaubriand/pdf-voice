@@ -895,7 +895,9 @@ export default function IpadReader(){
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
    const current=audioUrl(list[i]);
-   for(let ahead=1;ahead<=6;ahead++){
+   // Each clip now contains up to six sentences, so two clips ahead gives
+   // roughly twelve sentences of buffer without flooding the speech API.
+   for(let ahead=1;ahead<=2;ahead++){
     const nextIndex=i+ahead;
     if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
    }
