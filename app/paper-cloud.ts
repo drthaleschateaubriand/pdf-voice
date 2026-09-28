@@ -152,7 +152,7 @@ export async function saveCloudPreferences(prefs:CloudPreferences){
 
 export async function openCloudBook(input:{fingerprint:string;fileName:string;fileSize:number;totalPages:number}):Promise<CloudBookState>{
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
- const bookBody={user_id:session.user.id,fingerprint:input.fingerprint,file_name:input.fileName,file_size:input.fileSize,title:input.fileName.replace(/\.pdf$/i,''),total_pages:input.totalPages};
+ const bookBody={user_id:session.user.id,fingerprint:input.fingerprint,file_name:input.fileName,file_size:input.fileSize,title:input.fileName.replace(/\.(pdf|epub)$/i,''),total_pages:input.totalPages};
  const upsert=await db('books?on_conflict=user_id,fingerprint&select=id,storage_path',{
   method:'POST',
   headers:{Prefer:'resolution=merge-duplicates,return=representation'},
@@ -224,15 +224,20 @@ export async function listCloudLibrary():Promise<CloudLibraryBook[]>{
  });
 }
 
-export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percent:number)=>void){
+export async function uploadCloudDocument(file:File,bookId:string,onProgress?:(percent:number)=>void){
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
- if(file.type&&file.type!=='application/pdf')throw new Error('Somente arquivos PDF podem ser enviados.');
- const objectPath=session.user.id+'/'+bookId+'/document.pdf';
+ const lower=file.name.toLowerCase();
+ const isPdf=lower.endsWith('.pdf')||file.type==='application/pdf';
+ const isEpub=lower.endsWith('.epub')||file.type==='application/epub+zip';
+ if(!isPdf&&!isEpub)throw new Error('Envie um arquivo PDF ou EPUB.');
+ const extension=isEpub?'epub':'pdf';
+ const contentType=isEpub?'application/epub+zip':'application/pdf';
+ const objectPath=session.user.id+'/'+bookId+'/document.'+extension;
  const endpoint='https://cmgwbowbvcwmnluzevoq.storage.supabase.co/storage/v1/upload/resumable';
  const metadata=[
   'bucketName '+base64Metadata('pdfs'),
   'objectName '+base64Metadata(objectPath),
-  'contentType '+base64Metadata('application/pdf')
+  'contentType '+base64Metadata(contentType)
  ].join(',');
  const create=await fetch(endpoint,{
   method:'POST',
@@ -245,7 +250,11 @@ export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percen
    'x-upsert':'true'
   }
  });
- if(!create.ok)throw new Error('Não foi possível iniciar o envio do PDF.');
+ if(!create.ok){
+  let detail='';
+  try{detail=await create.text();}catch{}
+  throw new Error('Não foi possível iniciar o envio do '+extension.toUpperCase()+'.'+(detail?' '+detail:''));
+ }
  const rawLocation=create.headers.get('location');
  if(!rawLocation)throw new Error('O servidor não retornou o endereço do envio.');
  const uploadUrl=new URL(rawLocation,endpoint).toString();
@@ -272,7 +281,7 @@ export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percen
    attempt++;
    if(attempt<4)await new Promise(resolve=>setTimeout(resolve,[700,1800,4000][attempt-1]||4000));
   }
-  if(!response||!response.ok)throw new Error('Falha durante o envio do PDF.');
+  if(!response||!response.ok)throw new Error('Falha durante o envio do '+extension.toUpperCase()+'.');
   const nextOffset=Number(response.headers.get('Upload-Offset'));
   offset=Number.isFinite(nextOffset)&&nextOffset>offset?nextOffset:Math.min(file.size,offset+chunk.size);
   onProgress?.(Math.min(100,Math.round(offset/file.size*100)));
@@ -280,18 +289,28 @@ export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percen
  const update=await db('books?id=eq.'+encodeURIComponent(bookId),{
   method:'PATCH',
   headers:{Prefer:'return=minimal'},
-  body:JSON.stringify({storage_path:objectPath})
+  body:JSON.stringify({storage_path:objectPath,file_name:file.name,file_size:file.size,title:file.name.replace(/\.(pdf|epub)$/i,'')})
  });
- if(!update.res.ok)throw new Error('PDF enviado, mas não foi possível atualizar a biblioteca.');
+ if(!update.res.ok)throw new Error('Documento enviado, mas não foi possível atualizar a biblioteca.');
  return objectPath;
 }
 
-export async function downloadCloudPdf(book:Pick<CloudLibraryBook,'storage_path'|'file_name'>){
+export async function uploadCloudPdf(file:File,bookId:string,onProgress?:(percent:number)=>void){
+ return uploadCloudDocument(file,bookId,onProgress);
+}
+
+export async function downloadCloudDocument(book:Pick<CloudLibraryBook,'storage_path'|'file_name'>){
  if(!book.storage_path)throw new Error('Este livro ainda não foi salvo na nuvem.');
  const session=await getCloudSession();if(!session)throw new Error('Sessão não encontrada.');
  const url=SUPABASE_URL+'/storage/v1/object/authenticated/pdfs/'+encodeStoragePath(book.storage_path);
  const res=await fetch(url,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token}});
- if(!res.ok)throw new Error('Não foi possível baixar o PDF da sua biblioteca.');
+ if(!res.ok)throw new Error('Não foi possível baixar o documento da sua biblioteca.');
  const blob=await res.blob();
- return new File([blob],book.file_name,{type:'application/pdf',lastModified:Date.now()});
+ const isEpub=book.file_name.toLowerCase().endsWith('.epub')||book.storage_path.toLowerCase().endsWith('.epub');
+ const type=isEpub?'application/epub+zip':'application/pdf';
+ return new File([blob],book.file_name,{type,lastModified:Date.now()});
+}
+
+export async function downloadCloudPdf(book:Pick<CloudLibraryBook,'storage_path'|'file_name'>){
+ return downloadCloudDocument(book);
 }
