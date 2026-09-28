@@ -235,6 +235,7 @@ export default function IpadReader(){
  const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
  const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),pagePrefetch=useRef(new Map<string,Promise<string[]>>()),fileKey=useRef('');
+ const refreshPageAudioRef=useRef(0),refreshedAudioTextsRef=useRef(new Set<string>()),pageRestartingRef=useRef(false);
 
  useEffect(()=>{
   const nav=navigator as Navigator & {standalone?:boolean};
@@ -503,20 +504,13 @@ export default function IpadReader(){
   if(reset){setIndex(0);indexRef.current=0;}
  }
 
- function stopAndClearAudio(){
-  // Hard reset: invalidate every playback chain first so no stale callback can
-  // advance the reader after the user presses Parar.
+ function disposeAudioEngine(){
   token.current++;clipId.current++;playWanted.current=false;
-
-  // Cancel every TTS request that is still generating or prefetching audio.
   for(const controller of audioRequests.current)controller.abort();
   audioRequests.current.clear();
   pendingAudio.current.clear();
   pagePrefetch.current.clear();
 
-  // Fully dispose the media element. A fresh one will be created and unlocked
-  // on the next explicit user tap, which prevents an old Safari media pipeline
-  // from continuing or firing a delayed ended/error event.
   const a=audioRef.current;
   audioRef.current=null;
   if(a){
@@ -526,17 +520,66 @@ export default function IpadReader(){
    a.removeAttribute('src');
    try{a.load();}catch{}
   }
-
-  // Remove only the in-memory audio buffer. Persistent cached audio remains
-  // available, so Parar is a playback reset rather than a full cache purge.
-  for(const url of cache.current.values())URL.revokeObjectURL(url);
+  if(gestureAudioUrlRef.current){
+   try{URL.revokeObjectURL(gestureAudioUrlRef.current);}catch{}
+   gestureAudioUrlRef.current='';
+  }
+  for(const url of cache.current.values()){
+   try{URL.revokeObjectURL(url);}catch{}
+  }
   cache.current.clear();
   activeAudioUrlRef.current='';
-
   clearSpokenHighlight();
   setMode('idle');
+ }
+
+ async function stopAndClearAudio(){
+  if(pageRestartingRef.current)return;
+  pageRestartingRef.current=true;
+  const currentDoc=docRef.current;
+  const currentPage=pageRef.current;
+
+  // Equivalent to refreshing the reader page without losing the opened PDF.
+  // Everything that can still speak is destroyed before rebuilding the page.
+  disposeAudioEngine();
+  renderTask.current?.cancel();
+  textLayerTask.current?.cancel?.();
+  textItemsRef.current=[];
+  textDivsRef.current=[];
+  sentenceRangesRef.current=[];
+  try{window.getSelection()?.removeAllRanges();}catch{}
+  setSelectedText('');
+  selectionStartRef.current={item:0,offset:0};
+  selectionEndRef.current={item:0,offset:0};
+  setSentences([]);
+  sentencesRef.current=[];
+  setIndex(0);
+  indexRef.current=0;
   setError('');
-  setStage('Parado · motor de áudio reiniciado');
+
+  // Audio generated for this page is deliberately regenerated once after the
+  // restart. That replaces a possibly incomplete/stale persistent TTS clip
+  // without throwing away cached audio from the rest of the book.
+  refreshPageAudioRef.current=currentPage;
+  refreshedAudioTextsRef.current.clear();
+
+  if(!currentDoc){
+   setStage('Parado · motor de áudio reiniciado');
+   pageRestartingRef.current=false;
+   return;
+  }
+
+  setStage('Reiniciando página '+currentPage+'…');
+  try{
+   await extractPage(currentDoc,currentPage,0);
+   setStage('Página '+currentPage+' reiniciada · pronta para nova leitura');
+  }catch(e){
+   const message=e instanceof Error?e.message:'Falha ao reiniciar a página.';
+   if(!/Rendering cancelled|cancel/i.test(message))setError(message);
+   setStage('Página reiniciada');
+  }finally{
+   pageRestartingRef.current=false;
+  }
  }
 
  async function refreshAudioCacheStats(){
@@ -546,7 +589,9 @@ export default function IpadReader(){
  async function clearSavedAudioCache(){
   const ok=typeof window==='undefined'||window.confirm('Apagar todo o áudio salvo neste aparelho? O Meu Foco poderá gerar esses trechos novamente quando necessário.');
   if(!ok)return;
-  stopAndClearAudio();
+  disposeAudioEngine();
+  refreshPageAudioRef.current=0;
+  refreshedAudioTextsRef.current.clear();
   await clearPersistentAudioCache();
   setAudioCacheStats({entries:0,bytes:0});
   setAccountMessage('Áudio salvo neste aparelho foi apagado.');
@@ -885,6 +930,7 @@ export default function IpadReader(){
       if(next.length&&playWanted.current&&currentToken===token.current){
        clearSpokenHighlight();
        textDivsRef.current=[];sentenceRangesRef.current=[];
+       refreshPageAudioRef.current=0;refreshedAudioTextsRef.current.clear();
        pageRef.current=nextPage;sentencesRef.current=next;indexRef.current=0;
        setPage(nextPage);setJumpValue(String(nextPage));setSentences(next);setIndex(0);
        void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
@@ -897,6 +943,7 @@ export default function IpadReader(){
      }catch{}
     }
     try{
+     refreshPageAudioRef.current=0;refreshedAudioTextsRef.current.clear();
      const next=await extractPage(d,nextPage);
      if(playWanted.current&&currentToken===token.current)void playAt(0,next,currentToken,continueDocument,customRanges?true:trackIndex,customRanges?undefined:customRanges);
     }catch(e){
@@ -911,14 +958,22 @@ export default function IpadReader(){
   if(trackIndex){indexRef.current=i;setIndex(i);highlightSentence(i);}else if(customRanges){highlightRange(customRanges[i]);}else{clearSpokenHighlight();}setMode('loading');setStage('Preparando áudio…');
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
-   const current=audioUrl(list[i]);
+   const shouldRefreshCurrent=refreshPageAudioRef.current===pageRef.current&&!refreshedAudioTextsRef.current.has(list[i]);
+   const current=audioUrl(list[i],shouldRefreshCurrent);
    // Each clip now contains up to five sentences, so two clips ahead gives
    // roughly ten sentences of buffer without flooding the speech API.
    for(let ahead=1;ahead<=2;ahead++){
     const nextIndex=i+ahead;
-    if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
+    if(nextIndex<list.length){
+     const nextText=list[nextIndex];
+     const shouldRefreshAhead=refreshPageAudioRef.current===pageRef.current&&!refreshedAudioTextsRef.current.has(nextText);
+     void audioUrl(nextText,shouldRefreshAhead).then(()=>{
+      if(shouldRefreshAhead)refreshedAudioTextsRef.current.add(nextText);
+     }).catch(()=>{});
+    }
    }
    const url=await current;
+   if(shouldRefreshCurrent)refreshedAudioTextsRef.current.add(list[i]);
    if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
    let recovering=false,advanced=false,recoveryAttempts=0,watchdog:number|undefined,lastProgress=0,stalledTicks=0;
@@ -1102,6 +1157,10 @@ export default function IpadReader(){
   const d=docRef.current;if(!d)return;
   const target=Math.trunc(n);
   if(!Number.isFinite(target)||target<1||target>d.numPages){setError('Digite uma página entre 1 e '+d.numPages+'.');return;}
+  if(target!==refreshPageAudioRef.current){
+   refreshPageAudioRef.current=0;
+   refreshedAudioTextsRef.current.clear();
+  }
   stop();
   try{await extractPage(d,target);}catch(e){setError(e instanceof Error?e.message:'Falha ao carregar página.');}
  }
