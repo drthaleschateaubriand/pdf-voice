@@ -1,7 +1,7 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
-import {addCloudBookmark,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
+import {addCloudBookmark,deleteCloudBook,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 import {splitIpadSpeech} from '../lib/ipad-speech';
 import {parseEpub,type EpubBookData} from '../lib/epub-reader';
 
@@ -244,7 +244,7 @@ export default function IpadReader(){
  const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
  const [accountOpen,setAccountOpen]=useState(false),[accountEmail,setAccountEmail]=useState(''),[accountPassword,setAccountPassword]=useState(''),[accountBusy,setAccountBusy]=useState(false),[accountMessage,setAccountMessage]=useState('');
  const [audioCacheStats,setAudioCacheStats]=useState<AudioCacheStats>({entries:0,bytes:0});
- const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
+ const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[deletingBookId,setDeletingBookId]=useState(''),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
  const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentDocumentFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
@@ -331,6 +331,33 @@ export default function IpadReader(){
   try{setLibraryBooks(await listCloudLibrary());}
   catch{setCloudStatus('Conta conectada · biblioteca indisponível');}
   finally{setLibraryBusy(false);}
+ }
+
+ async function handleDeleteLibraryBook(book:CloudLibraryBook){
+  if(deletingBookId)return;
+  const label=book.title||book.file_name;
+  const ok=window.confirm('Excluir “'+label+'” da sua biblioteca? O progresso e os marcadores deste livro também serão apagados.');
+  if(!ok)return;
+  setDeletingBookId(book.id);setError('');setCloudStatus('Excluindo livro…');
+  try{
+   const result=await deleteCloudBook(book);
+   setLibraryBooks(current=>current.filter(item=>item.id!==book.id));
+   try{
+    localStorage.removeItem('paper-voice-bookmarks:'+book.fingerprint);
+    localStorage.removeItem('paper-voice-ios:'+book.fingerprint);
+   }catch{}
+   if(cloudBookIdRef.current===book.id){
+    cloudBookIdRef.current='';
+    setCurrentCloudStored(false);
+   }
+   setCloudStatus(result.storageDeleted?'Livro excluído da biblioteca e da nuvem':'Livro excluído da biblioteca');
+   if(!result.storageDeleted)setAccountMessage('Livro removido da biblioteca. O arquivo antigo do Storage não pôde ser apagado, mas não impedirá adicionar o livro novamente.');
+  }catch(e){
+   const message=e instanceof Error?e.message:'Não foi possível excluir o livro.';
+   setError(message);setCloudStatus('Falha ao excluir livro');
+  }finally{
+   setDeletingBookId('');
+  }
  }
 
  async function saveCurrentDocumentToCloud(){
@@ -1604,26 +1631,32 @@ export default function IpadReader(){
     {libraryBooks.length>0&&<>
      <section style={{marginBottom:30}}>
       <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:12}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Continuar lendo</div><div style={small}>Retome exatamente de onde parou.</div></div><span style={{...small,color:'#E76F3B',fontWeight:800}}>Ver tudo</span></div>
-      <button type="button" disabled={libraryBusy} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):chooseDocumentForLibrary(libraryBooks[0])} style={{...card,width:'100%',display:'grid',gridTemplateColumns:'118px 1fr auto',alignItems:'center',gap:18,textAlign:'left',cursor:'pointer',background:'linear-gradient(135deg,#fff8ec,#f7ead8)',padding:16}}>
-       <BookCover book={libraryBooks[0]} index={0} compact/>
-       <div style={{minWidth:0}}>
+      <div style={{...card,width:'100%',display:'grid',gridTemplateColumns:'118px 1fr auto',alignItems:'center',gap:18,textAlign:'left',background:'linear-gradient(135deg,#fff8ec,#f7ead8)',padding:16,boxSizing:'border-box'}}>
+       <button type="button" disabled={libraryBusy||deletingBookId===libraryBooks[0].id} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):chooseDocumentForLibrary(libraryBooks[0])} style={{border:0,background:'transparent',padding:0,cursor:'pointer',textAlign:'left'}}><BookCover book={libraryBooks[0]} index={0} compact/></button>
+       <button type="button" disabled={libraryBusy||deletingBookId===libraryBooks[0].id} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):chooseDocumentForLibrary(libraryBooks[0])} style={{border:0,background:'transparent',padding:0,minWidth:0,textAlign:'left',cursor:'pointer',color:'inherit'}}>
         <div style={{fontFamily:'Georgia,serif',fontSize:25,fontWeight:800,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{libraryBooks[0].title||libraryBooks[0].file_name}</div>
         <div style={{...small,marginTop:5}}>{libraryBooks[0].file_name.toLowerCase().endsWith('.epub')?'Capítulo':'Página'} {libraryBooks[0].page} de {libraryBooks[0].total_pages||'?'} · {libraryBooks[0].storage_path?'salvo na nuvem':'toque para enviar o arquivo'}</div>
         <div style={{height:7,background:'#e6dccd',borderRadius:99,marginTop:14,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((libraryBooks[0].page/Math.max(1,libraryBooks[0].total_pages))*100))+'%',background:'#E76F3B'}}/></div>
+       </button>
+       <div style={{display:'grid',gap:8,justifyItems:'end'}}>
+        <button type="button" disabled={libraryBusy||deletingBookId===libraryBooks[0].id} onClick={()=>libraryBooks[0].storage_path?void openLibraryBook(libraryBooks[0]):chooseDocumentForLibrary(libraryBooks[0])} style={{...primary,padding:'10px 15px',whiteSpace:'nowrap'}}>{deletingBookId===libraryBooks[0].id?'Excluindo…':'Continuar'}</button>
+        <button type="button" disabled={libraryBusy||Boolean(deletingBookId)} onClick={()=>void handleDeleteLibraryBook(libraryBooks[0])} style={{...button,padding:'7px 11px',fontSize:12,color:'#9a4935',borderColor:'#d7b3a7'}}>Excluir</button>
        </div>
-       <span style={{...primary,padding:'10px 15px',whiteSpace:'nowrap'}}>Continuar</span>
-      </button>
+      </div>
      </section>
 
      <section>
       <div style={{display:'flex',alignItems:'end',justifyContent:'space-between',gap:12,marginBottom:14}}><div><div style={{fontFamily:'Georgia,serif',fontSize:28,fontWeight:800}}>Minha Biblioteca</div><div style={small}>PDFs e EPUBs sincronizados.</div></div><span style={{...small}}>Recentemente adicionados</span></div>
       <div className="pv-book-grid" style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(165px,1fr))',gap:18}}>
-       {libraryBooks.map((book,i)=><button key={book.id} type="button" disabled={libraryBusy} onClick={()=>book.storage_path?void openLibraryBook(book):chooseDocumentForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#1B3B2B',cursor:'pointer'}}>
-        <BookCover book={book} index={i}/>
-        <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:16,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
-        <div style={{...small,marginTop:4}}>{book.file_name.toLowerCase().endsWith('.epub')?'Cap.':'Pág.'} {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Enviar arquivo'}</div>
-        <div style={{height:4,background:'#e8dfd3',borderRadius:99,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((book.page/Math.max(1,book.total_pages))*100))+'%',background:i%2?'#1B3B2B':'#E76F3B'}}/></div>
-       </button>)}
+       {libraryBooks.map((book,i)=><div key={book.id} className="pv-library-book-item" style={{minWidth:0}}>
+        <button type="button" disabled={libraryBusy||deletingBookId===book.id} onClick={()=>book.storage_path?void openLibraryBook(book):chooseDocumentForLibrary(book)} style={{border:0,background:'transparent',padding:0,textAlign:'left',color:'#1B3B2B',cursor:'pointer',width:'100%'}}>
+         <BookCover book={book} index={i}/>
+         <div style={{fontFamily:'Georgia,serif',fontWeight:800,fontSize:16,marginTop:9,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{book.title||book.file_name}</div>
+         <div style={{...small,marginTop:4}}>{book.file_name.toLowerCase().endsWith('.epub')?'Cap.':'Pág.'} {book.page}/{book.total_pages||'?'} · {book.storage_path?'Nuvem':'Enviar arquivo'}</div>
+         <div style={{height:4,background:'#e8dfd3',borderRadius:99,marginTop:7,overflow:'hidden'}}><div style={{height:'100%',width:Math.min(100,Math.round((book.page/Math.max(1,book.total_pages))*100))+'%',background:i%2?'#1B3B2B':'#E76F3B'}}/></div>
+        </button>
+        <button type="button" className="pv-library-delete" disabled={libraryBusy||Boolean(deletingBookId)} onClick={()=>void handleDeleteLibraryBook(book)}>{deletingBookId===book.id?'Excluindo…':'Excluir'}</button>
+       </div>)}
       </div>
      </section>
     </>}
