@@ -1,8 +1,8 @@
 // Build larger speech clips for smoother iPad/Safari playback.
-// Up to six sentences are sent in one request, while long text is still capped
+// Up to five sentences are sent in one request, while long text is still capped
 // so generation remains reliable and every character is preserved.
 export const MAX_IPAD_SPEECH_CHARS=1500;
-export const MAX_IPAD_SENTENCES_PER_CLIP=6;
+export const MAX_IPAD_SENTENCES_PER_CLIP=5;
 
 export function splitIpadSpeech(text:string):string[]{
  const clean=text.replace(/\s+/g,' ').trim();
@@ -40,7 +40,7 @@ export function splitIpadSpeech(text:string):string[]{
   if(remainder)safeSentences.push(remainder);
  }
 
- // Then group up to six sentences into a single clip. This avoids the audible
+ // Then group up to five sentences into a single clip. This avoids the audible
  // pause and highlight churn that happens when Safari swaps audio every sentence.
  const clips:string[]=[];
  let group:string[]=[];
