@@ -32,8 +32,12 @@ export async function POST(request:Request){
   const signal=AbortSignal.any([request.signal,AbortSignal.timeout(90000)]);
   const response=provider==='cartesia'
    ?await retrying(()=>fetch('https://api.cartesia.ai/tts/bytes',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Cartesia-Version':'2026-08-14','Content-Type':'application/json'},body:JSON.stringify({model_id:engine.model,transcript:text,voice:{mode:'id',id:voice},language:'en',output_format:{container:'mp3',sample_rate:44100,bit_rate:128000}}),signal}),signal)
-   :await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:engine.model,voice,input:text,response_format:'mp3',instructions:'Leia em português do Brasil, com dicção clara, ritmo calmo e natural, como um professor de medicina explicando um capítulo. Respeite a pontuação, pronuncie siglas com clareza e não acrescente comentários.'}),signal});
+   :await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:engine.model,voice,input:text,response_format:'mp3',instructions:'Leia integralmente o texto fornecido, exatamente uma vez, do início ao fim. Não pule, não resuma, não reorganize, não parafraseie e não omita nenhuma palavra ou frase. Use português do Brasil, dicção clara, ritmo calmo e natural, respeite a pontuação e pronuncie siglas com clareza. Não acrescente comentários.'}),signal});
   if(!response.ok){const status=response.status;return Response.json({error:status===401?`${name} rejected the API key.`:status===402?`${name} credits are used up. Check the plan, then try again.`:status===429?`${name} quota, concurrency or rate limit reached. Check the plan, then try again.`:`${name} speech request failed (${status}). Try again.`},{status});}
-  return new Response(response.body,{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store'}});
+  // Buffer the upstream body completely before returning 200. This prevents a
+  // prematurely closed upstream stream from being accepted and cached as a valid MP3.
+  const audio=await response.arrayBuffer();
+  if(audio.byteLength<1024)return Response.json({error:'Speech generation returned incomplete audio. Please try again.'},{status:502});
+  return new Response(audio,{headers:{'Content-Type':'audio/mpeg','Content-Length':String(audio.byteLength),'Cache-Control':'no-store'}});
  }catch{return Response.json({error:'Speech generation failed or timed out. Please try again.'},{status:502});}
 }
