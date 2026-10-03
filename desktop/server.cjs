@@ -3,7 +3,6 @@ const fs=require('node:fs');
 const path=require('node:path');
 const os=require('node:os');
 const {parseEnv}=require('node:util');
-const {Readable}=require('node:stream');
 // Two speech engines, chosen per request by the reader: Cartesia Sonic 3.6 (key SONIC) and OpenAI gpt-4o-mini-tts (key OPENAI).
 // The tables mirror app/api/speech/route.ts; this file ships standalone inside the macOS app.
 const providers={
@@ -53,10 +52,10 @@ async function startServer(root,preferredPort=0){
     let response;
     try{response=provider==='cartesia'
      ?await retrying(()=>fetch('https://api.cartesia.ai/tts/bytes',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Cartesia-Version':'2026-08-14','Content-Type':'application/json'},body:JSON.stringify({model_id:engine.model,transcript:text,voice:{mode:'id',id:voice},language:'en',output_format:{container:'mp3',sample_rate:44100,bit_rate:128000}}),signal}),signal)
-     :await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:engine.model,voice,input:text,response_format:'mp3',instructions:'Read the supplied text faithfully in a clear, calm, natural voice. Do not add commentary.'}),signal});}
+     :await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:engine.model,voice,input:text,response_format:'mp3',instructions:'Leia integralmente o texto fornecido, exatamente uma vez, do início ao fim. Não pule, não resuma, não reorganize, não parafraseie e não omita nenhuma palavra ou frase. Use português do Brasil, dicção clara, ritmo calmo e natural, respeite a pontuação e pronuncie siglas com clareza. Não acrescente comentários.'}),signal});}
     catch(error){release();throw error;}
     if(!response.ok){release();const status=response.status;return json(status,{error:status===401?`${name} rejected the API key.`:status===402?`${name} credits are used up. Check the plan, then try again.`:status===429?`${name} quota, concurrency or rate limit reached. Check the plan, then try again.`:`${name} speech request failed (${status}).`});}
-    res.on('close',release);res.writeHead(200,{'Content-Type':'audio/mpeg','Cache-Control':'no-store'});Readable.fromWeb(response.body).on('error',()=>res.destroy()).pipe(res);return;
+    const audio=Buffer.from(await response.arrayBuffer());release();if(audio.length<1024)return json(502,{error:'Speech generation returned incomplete audio. Please try again.'});res.writeHead(200,{'Content-Type':'audio/mpeg','Content-Length':audio.length,'Cache-Control':'no-store'});res.end(audio);return;
    }
    if(req.method!=='GET'&&req.method!=='HEAD')return json(405,{error:'Method not allowed.'});
    const file=path.resolve(root,'.'+decodeURIComponent(pathname==='/'?'/index.html':pathname));if(!file.startsWith(root+path.sep))return json(403,{error:'Invalid path.'});
