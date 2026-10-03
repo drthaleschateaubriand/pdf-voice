@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
+import {loadLastOpenedDocument,saveLastOpenedDocument} from './document-cache';
 import {addCloudBookmark,deleteCloudBook,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 import {splitIpadSpeech} from '../lib/ipad-speech';
 import {parseEpub,type EpubBookData} from '../lib/epub-reader';
@@ -475,9 +476,20 @@ export default function IpadReader(){
  }
 
  useEffect(()=>{
-  void getCloudSession().then(session=>{
-   if(session)void attachCloudSession(session);
-  }).catch(()=>{});
+  let cancelled=false;
+  void (async()=>{
+   try{
+    const session=await getCloudSession();
+    if(cancelled)return;
+    if(session)await attachCloudSession(session);
+   }catch{}
+   if(cancelled||docRef.current)return;
+   const last=await loadLastOpenedDocument();
+   if(cancelled||!last||docRef.current)return;
+   setStage('Restaurando última leitura…');
+   await openDocument(last);
+  })().catch(()=>{if(!cancelled)setStage('Pronto');});
+  return()=>{cancelled=true;};
  },[]);
 
  useEffect(()=>{
@@ -850,6 +862,7 @@ export default function IpadReader(){
    stageName='extrair texto';
    await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
    await extractPage(next,start,savedIndex);
+   void saveLastOpenedDocument(file).catch(()=>{});
   }catch(e){
    setError('Falha ao abrir o PDF em "'+stageName+'": '+(e instanceof Error?e.message:String(e)));
    setStage('Falha');
@@ -902,6 +915,7 @@ export default function IpadReader(){
    }
    await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
    await extractEpubChapter(start,savedIndex);
+   void saveLastOpenedDocument(file).catch(()=>{});
   }catch(e){
    documentKindRef.current=null;setDocumentKind(null);epubBookRef.current=null;setEpubBook(null);
    setDoc(null);docRef.current=null;
