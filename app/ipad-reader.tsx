@@ -561,7 +561,7 @@ export default function IpadReader(){
 
  function stop(reset=false){
   token.current++;clipId.current++;playWanted.current=false;
-  const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;a.removeAttribute('src');try{a.load();}catch{}}
+  const a=audioRef.current;if(a){a.pause();a.onended=null;a.onerror=null;a.onplaying=null;a.removeAttribute('src');try{a.load();}catch{}}
   activeAudioUrlRef.current='';
   setMode('idle');clearSpokenHighlight();
   if(reset){setIndex(0);indexRef.current=0;}
@@ -577,7 +577,7 @@ export default function IpadReader(){
   const a=audioRef.current;
   audioRef.current=null;
   if(a){
-   a.onended=null;a.onerror=null;
+   a.onended=null;a.onerror=null;a.onplaying=null;
    try{a.pause();}catch{}
    try{a.currentTime=0;}catch{}
    a.removeAttribute('src');
@@ -948,14 +948,19 @@ export default function IpadReader(){
   trimTemporaryAudioCache();
  }
 
+ function minimumAudioBytes(text:string){
+  return Math.max(1024,Math.min(12000,text.trim().length*8));
+ }
+
  async function loadAudioUrl(text:string,forceFresh=false,retry=0){
   const key=voice+'|'+text;
+  const minimumBytes=minimumAudioBytes(text);
   if(!forceFresh&&cache.current.has(key))return cache.current.get(key)!;
 
   const persistentKey=await makeAudioCacheKey(voice,text);
   const saved=forceFresh?null:await getPersistentAudio(persistentKey);
   if(saved){
-   if(saved.size<512){
+   if(saved.size<minimumBytes){
     await deletePersistentAudio(persistentKey);
    }else{
     const savedUrl=URL.createObjectURL(saved);
@@ -976,7 +981,7 @@ export default function IpadReader(){
    }
    const blob=await res.blob();
    if(controller.signal.aborted)throw new DOMException('Leitura interrompida','AbortError');
-   if(blob.size<512)throw new Error('A geração de voz retornou um áudio inválido.');
+   if(blob.size<minimumBytes)throw new Error('A geração de voz retornou um áudio incompleto.');
 
    const stats=await putPersistentAudio(persistentKey,blob);
    if(stats)setAudioCacheStats(stats);
@@ -996,15 +1001,19 @@ export default function IpadReader(){
 
  function audioUrl(text:string,forceFresh=false):Promise<string>{
   const key=voice+'|'+text;
-  if(!forceFresh){
-   const ready=cache.current.get(key);
-   if(ready)return Promise.resolve(ready);
-  }
-  // A fresh regeneration can also be prefetched. Always dedupe by clip so the
-  // reader never launches a second request for the same text while one is active.
-  const pending=pendingAudio.current.get(key);
-  if(pending)return pending;
-  const request=loadAudioUrl(text,forceFresh).finally(()=>{
+  const ready=!forceFresh?cache.current.get(key):undefined;
+  if(ready)return Promise.resolve(ready);
+
+  const previous=pendingAudio.current.get(key);
+  if(previous&&!forceFresh)return previous;
+
+  // Recovery must never reuse the request that may have produced the bad clip.
+  // If one is still running, wait for it to settle and regenerate afterwards,
+  // ensuring the fresh result is the last value written to persistent cache.
+  const request=(async()=>{
+   if(forceFresh&&previous){try{await previous;}catch{}}
+   return loadAudioUrl(text,forceFresh);
+  })().finally(()=>{
    if(pendingAudio.current.get(key)===request)pendingAudio.current.delete(key);
   });
   pendingAudio.current.set(key,request);
@@ -1047,7 +1056,7 @@ export default function IpadReader(){
 
  function prepareAudioElement(url:string){
   const audio=audioRef.current||new Audio();audioRef.current=audio;
-  audio.onended=null;audio.onerror=null;audio.pause();audio.preload='auto';
+  audio.onended=null;audio.onerror=null;audio.onplaying=null;audio.pause();audio.preload='auto';
   // Safari/iPad can keep stale decoder state when the same media element swaps
   // between blob URLs. Fully detach the previous source before attaching the next.
   if(audio.getAttribute('src')){
@@ -1124,9 +1133,8 @@ export default function IpadReader(){
   try{
    if(continueDocument&&i>=Math.max(0,list.length-2))prefetchNextPageFirstAudio();
    const current=audioUrl(list[i]);
-   // Keep three clips ahead warm. With five sentences per clip this gives a
-   // generous runway while avoiding the page-wide forced regeneration that
-   // introduced audible gaps after the hard reset.
+   // Keep three short clips ahead warm. At two sentences per clip this keeps
+   // enough runway for smooth playback without creating large TTS requests.
    for(let ahead=1;ahead<=3;ahead++){
     const nextIndex=i+ahead;
     if(nextIndex<list.length)void audioUrl(list[nextIndex]).catch(()=>{});
@@ -1134,7 +1142,7 @@ export default function IpadReader(){
    const url=await current;
    if(!playWanted.current||currentToken!==token.current||currentClip!==clipId.current)return;
    let audio=prepareAudioElement(url);
-   let recovering=false,advanced=false,recoveryAttempts=0,watchdog:number|undefined,lastProgress=0,stalledTicks=0;
+   let recovering=false,advanced=false,recoveryAttempts=0,watchdog:number|undefined,lastProgress=0,stalledTicks=0,playbackStarted=false;
    const sameClip=()=>currentToken===token.current&&currentClip===clipId.current&&audioRef.current===audio;
    const isCurrent=()=>playWanted.current&&sameClip();
    function clearWatchdog(){if(watchdog!==undefined){window.clearInterval(watchdog);watchdog=undefined;}}
@@ -1164,8 +1172,15 @@ export default function IpadReader(){
      if(stalledTicks>=5){clearWatchdog();void recoverPlayback();}
     },1000);
    }
+   function markPlaybackStarted(){
+    if(isCurrent())playbackStarted=true;
+   }
    function onEnded(){
     if(!isCurrent()||advanced||recovering)return;
+    // Safari may deliver an ended event queued for the previous blob after the
+    // shared media element has already received a new source. Never let that
+    // stale event advance the new clip.
+    if(!playbackStarted||!audio.ended)return;
     const now=audio.currentTime;
     const duration=audio.duration;
     if(now<0.25){void recoverPlayback();return;}
@@ -1183,12 +1198,14 @@ export default function IpadReader(){
     recovering=true;clearWatchdog();
     setStage('Recuperando áudio…');
     try{
-     audio.onended=null;audio.onerror=null;audio.pause();audio.removeAttribute('src');try{audio.load();}catch{}
+     audio.onended=null;audio.onerror=null;audio.onplaying=null;audio.pause();audio.removeAttribute('src');try{audio.load();}catch{}
      activeAudioUrlRef.current='';
      await invalidateAudioForText(list[i]);
      const freshUrl=await audioUrl(list[i],true);
      if(currentToken!==token.current||currentClip!==clipId.current||!playWanted.current)return;
      audio=prepareAudioElement(freshUrl);
+     playbackStarted=false;
+     audio.onplaying=markPlaybackStarted;
      audio.onended=onEnded;
      audio.onerror=()=>{void recoverPlayback();};
      await audio.play();
@@ -1206,6 +1223,7 @@ export default function IpadReader(){
      stop();
     }
    }
+   audio.onplaying=markPlaybackStarted;
    audio.onended=onEnded;
    audio.onerror=()=>{void recoverPlayback();};
    try{
