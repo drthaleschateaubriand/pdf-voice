@@ -3,7 +3,7 @@ const STORE='audio';
 const DB_VERSION=1;
 const MAX_BYTES=180*1024*1024;
 const MAX_ENTRIES=1800;
-const CACHE_NAMESPACE='openai-gpt-4o-mini-tts-ptbr-v1';
+const CACHE_NAMESPACE='openai-gpt-4o-mini-tts-ptbr-v2-integrity';
 
 type AudioRecord={
  key:string;
