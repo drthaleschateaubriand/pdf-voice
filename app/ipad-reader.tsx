@@ -1833,12 +1833,6 @@ export default function IpadReader(){
      {bookmarks.map(n=><option key={n} value={n}>{isEpub?'Capítulo':'Página'} {n}</option>)}
     </select>}
    </div>
-   {focusMode&&<div className="mf-focus-stepper" style={{position:'fixed',left:'50%',bottom:compactControls?'calc(62px + env(safe-area-inset-bottom, 0px))':'calc(10px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:31,display:'flex',alignItems:'center',gap:6,background:'rgba(255,253,248,.96)',border:'1px solid #b9d3bf',borderRadius:18,padding:6,boxShadow:'0 6px 22px rgba(0,0,0,.18)',whiteSpace:'nowrap'}}>
-    <button type="button" style={{...button,padding:'8px 10px'}} disabled={page<=1&&focusIndex<=0} onClick={()=>void moveFocusBlock(-1)}>← 3 frases</button>
-    <span style={{...small,fontWeight:800,color:'#1B3B2B'}}>Foco {focusSentenceCount?Math.floor(focusIndex/3)+1:0}/{Math.max(1,Math.ceil(focusSentenceCount/3))}</span>
-    <button type="button" style={{...primary,padding:'8px 11px'}} disabled={page>=pages&&focusIndex+3>=focusSentenceCount} onClick={()=>void moveFocusBlock(1)}>3 frases →</button>
-    <button type="button" style={{...button,padding:'8px 9px'}} onClick={toggleFocusMode}>Sair</button>
-   </div>}
    <form className="mf-compact-controls" onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
     <input
