@@ -1357,3 +1357,39 @@ body{background:#F7F3EB;color:#1b1b1c}
  border-color:#315F49;
  color:#fff;
 }
+
+
+/* Apollo 12.6: page navigation controls at the vertical center edges. */
+.mf-page-edge-nav{
+ position:fixed;
+ top:50%;
+ transform:translateY(-50%);
+ z-index:34;
+ width:42px;
+ height:58px;
+ border:1px solid rgba(214,208,198,.92);
+ border-radius:16px;
+ background:rgba(255,253,248,.88);
+ color:#1B3B2B;
+ box-shadow:0 5px 18px rgba(40,34,27,.16);
+ display:grid;
+ place-items:center;
+ padding:0;
+ font-family:Georgia,serif;
+ font-size:34px;
+ line-height:1;
+ font-weight:700;
+ cursor:pointer;
+ touch-action:manipulation;
+ -webkit-tap-highlight-color:transparent;
+ backdrop-filter:blur(8px);
+}
+.mf-page-edge-nav-left{left:max(8px,env(safe-area-inset-left,0px))}
+.mf-page-edge-nav-right{right:max(8px,env(safe-area-inset-right,0px))}
+.mf-page-edge-nav:active:not(:disabled){transform:translateY(-50%) scale(.95)}
+.mf-page-edge-nav:disabled{opacity:.22;box-shadow:none}
+[data-theme="dark"] .mf-page-edge-nav{
+ background:rgba(24,35,29,.88);
+ border-color:#34463C;
+ color:#EAF0EC;
+}
