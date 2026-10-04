@@ -1,8 +1,9 @@
-import {splitIpadSpeech} from './ipad-speech';
+import {splitIpadSentences,splitIpadSpeech} from './ipad-speech';
 
 export type EpubBlock={
  kind:'heading'|'paragraph'|'list';
  text:string;
+ sentences:string[];
  clips:string[];
 };
 
@@ -126,13 +127,15 @@ function extractBlocks(document:Document){
   if(!text)continue;
   const tag=node.tagName.toLowerCase();
   const kind:EpubBlock['kind']=tag.startsWith('h')?'heading':tag==='li'?'list':'paragraph';
+  const sentences=splitIpadSentences(text);
   const clips=splitIpadSpeech(text);
-  if(clips.length)blocks.push({kind,text,clips});
+  if(clips.length)blocks.push({kind,text,sentences,clips});
  }
  if(!blocks.length){
   const text=cleanText(body.textContent);
+  const sentences=splitIpadSentences(text);
   const clips=splitIpadSpeech(text);
-  if(clips.length)blocks.push({kind:'paragraph',text,clips});
+  if(clips.length)blocks.push({kind:'paragraph',text,sentences,clips});
  }
  return blocks;
 }
