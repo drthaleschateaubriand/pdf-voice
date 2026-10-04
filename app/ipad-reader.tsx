@@ -1855,12 +1855,16 @@ export default function IpadReader(){
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
     <button
      type="button"
+     className={focusMode?'mf-focus-inline-button active':'mf-focus-inline-button'}
      aria-pressed={focusMode}
      aria-label={focusMode?'Avançar três frases':'Ativar modo foco de três frases'}
-     style={{...(focusMode?primary:button),padding:'7px 10px',fontWeight:800}}
+     title={focusMode?'Avançar 3 frases':'Ativar foco em blocos de 3 frases'}
      disabled={!focusSentenceCount||(focusMode&&page>=pages&&focusIndex+3>=focusSentenceCount)}
      onClick={()=>{if(focusMode)void moveFocusBlock(1);else toggleFocusMode();}}
-    >{focusMode?'3 frases →':'Foco 3'}</button>
+    >
+     <span>{focusMode?'3':'Foco'}</span>
+     <small>{focusMode?'frases':'3'}</small>
+    </button>
    </form>
   </>}
  </main>;
