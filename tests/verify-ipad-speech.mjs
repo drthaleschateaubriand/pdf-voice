@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {splitIpadSpeech,MAX_IPAD_SPEECH_CHARS,MAX_IPAD_SENTENCES_PER_CLIP} from '../lib/ipad-speech.ts';
+import {splitIpadSentences,splitIpadSpeech,MAX_IPAD_SPEECH_CHARS,MAX_IPAD_SENTENCES_PER_CLIP} from '../lib/ipad-speech.ts';
 
 const text='Dr. Silva avaliou a paciente. A pressão foi 120/80 mmHg. O exame mostrou melhora! Próxima conduta?';
 assert.deepEqual(splitIpadSpeech(text),[
@@ -8,6 +8,7 @@ assert.deepEqual(splitIpadSpeech(text),[
 ]);
 
 const five='Um. Dois. Três. Quatro. Cinco.';
+assert.deepEqual(splitIpadSentences(five),['Um.','Dois.','Três.','Quatro.','Cinco.']);
 assert.deepEqual(splitIpadSpeech(five),[
  'Um. Dois.',
  'Três. Quatro.',
