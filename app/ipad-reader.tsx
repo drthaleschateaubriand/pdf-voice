@@ -1882,7 +1882,7 @@ export default function IpadReader(){
      onClick={()=>{if(focusMode)void moveFocusBlock(1);else toggleFocusMode();}}
     >
      <span>{focusMode?'3':'Foco'}</span>
-     <small>{focusMode?'frases':'3'}</small>
+     <small>{focusMode?'frases →':'3'}</small>
     </button>
    </form>
   </>}
