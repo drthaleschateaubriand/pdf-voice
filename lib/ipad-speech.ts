@@ -4,7 +4,7 @@
 export const MAX_IPAD_SPEECH_CHARS=900;
 export const MAX_IPAD_SENTENCES_PER_CLIP=2;
 
-export function splitIpadSpeech(text:string):string[]{
+export function splitIpadSentences(text:string):string[]{
  const clean=text.replace(/\s+/g,' ').trim();
  if(!clean)return [];
 
@@ -27,7 +27,8 @@ export function splitIpadSpeech(text:string):string[]{
  }
  const tail=clean.slice(start).trim();if(tail)sentences.push(tail);
 
- // First split only truly long individual sentences.
+ // Split only truly long individual sentences. These remain visual focus units too,
+ // which keeps manual navigation deterministic even for unusually long technical prose.
  const safeSentences:string[]=[];
  for(const sentence of sentences){
   let remainder=sentence;
@@ -39,9 +40,15 @@ export function splitIpadSpeech(text:string):string[]{
   }
   if(remainder)safeSentences.push(remainder);
  }
+ return safeSentences;
+}
 
- // Then group at most two sentences into a clip. Prefetch keeps playback smooth,
- // while shorter clips make recovery precise and keep every sentence traceable.
+export function splitIpadSpeech(text:string):string[]{
+ const safeSentences=splitIpadSentences(text);
+ if(!safeSentences.length)return [];
+
+ // Group at most two real sentences into an audio clip. Manual focus navigation uses
+ // splitIpadSentences directly, so its 3-sentence steps never become 6-sentence jumps.
  const clips:string[]=[];
  let group:string[]=[];
  let chars=0;

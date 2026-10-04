@@ -3,7 +3,7 @@ import {useCallback,useEffect,useRef,useState,type CSSProperties} from 'react';
 import {clearPersistentAudioCache,deletePersistentAudio,formatAudioCacheBytes,getPersistentAudio,getPersistentAudioCacheStats,makeAudioCacheKey,putPersistentAudio,type AudioCacheStats} from './audio-cache';
 import {loadLastOpenedDocument,saveLastOpenedDocument} from './document-cache';
 import {addCloudBookmark,deleteCloudBook,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
-import {splitIpadSpeech} from '../lib/ipad-speech';
+import {splitIpadSentences,splitIpadSpeech} from '../lib/ipad-speech';
 import {parseEpub,type EpubBookData} from '../lib/epub-reader';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
@@ -242,17 +242,18 @@ export default function IpadReader(){
  const [darkMode,setDarkMode]=useState(false);
  const [bookmarks,setBookmarks]=useState<number[]>([]);
  const [highlightEnabled,setHighlightEnabled]=useState(true);
+ const [focusMode,setFocusMode]=useState(false),[focusIndex,setFocusIndex]=useState(0),[focusSentenceCount,setFocusSentenceCount]=useState(0);
  const [cloudSession,setCloudSession]=useState<CloudSession|null>(null),[cloudStatus,setCloudStatus]=useState('Somente neste aparelho');
  const [accountOpen,setAccountOpen]=useState(false),[accountEmail,setAccountEmail]=useState(''),[accountPassword,setAccountPassword]=useState(''),[accountBusy,setAccountBusy]=useState(false),[accountMessage,setAccountMessage]=useState('');
  const [audioCacheStats,setAudioCacheStats]=useState<AudioCacheStats>({entries:0,bytes:0});
  const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[deletingBookId,setDeletingBookId]=useState(''),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
- const highlightEnabledRef=useRef(true),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
+ const highlightEnabledRef=useRef(true),focusModeRef=useRef(false),focusIndexRef=useRef(0),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentDocumentFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
  const fileRef=useRef<HTMLInputElement>(null),canvasRef=useRef<HTMLCanvasElement>(null),canvasWrap=useRef<HTMLDivElement>(null),pageStageRef=useRef<HTMLDivElement>(null),textLayerRef=useRef<HTMLDivElement>(null);
  const docRef=useRef<PdfDocLike|null>(null),documentKindRef=useRef<DocumentKind|null>(null),epubBookRef=useRef<EpubBookData|null>(null),pageRef=useRef(1),sentencesRef=useRef<string[]>([]),indexRef=useRef(0);
  const renderTask=useRef<PdfRenderTask|null>(null),textLayerTask=useRef<PdfTextLayerTask|null>(null);
- const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
+ const textItemsRef=useRef<PdfTextItem[]>([]),textDivsRef=useRef<HTMLElement[]>([]),sentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),focusSentenceRangesRef=useRef<Array<{start:number;end:number}>>([]),selectionStartRef=useRef({item:0,offset:0}),selectionEndRef=useRef({item:0,offset:0});
  const audioRef=useRef<HTMLAudioElement|null>(null),gestureAudioUrlRef=useRef(''),activeAudioUrlRef=useRef(''),playWanted=useRef(false),token=useRef(0),clipId=useRef(0);
  const cache=useRef(new Map<string,string>()),pendingAudio=useRef(new Map<string,Promise<string>>()),audioRequests=useRef(new Set<AbortController>()),pagePrefetch=useRef(new Map<string,Promise<string[]>>()),fileKey=useRef('');
  const pageRestartingRef=useRef(false);
@@ -269,6 +270,7 @@ export default function IpadReader(){
  useEffect(()=>{pageRef.current=page;},[page]);
  useEffect(()=>{sentencesRef.current=sentences;},[sentences]);
  useEffect(()=>{indexRef.current=index;},[index]);
+ useEffect(()=>{focusIndexRef.current=focusIndex;},[focusIndex]);
  useEffect(()=>{if(audioRef.current)audioRef.current.playbackRate=speed;},[speed]);
  useEffect(()=>{
   let dark=false;
@@ -517,6 +519,58 @@ export default function IpadReader(){
   for(const span of textDivsRef.current)span.classList.remove('ipad-speaking');
  }
 
+ function clearFocusHighlight(){
+  for(const span of textDivsRef.current)span.classList.remove('ipad-focus');
+ }
+
+ function highlightFocusBlock(start:number,scroll=true){
+  clearFocusHighlight();
+  if(!focusModeRef.current)return;
+  const ranges=focusSentenceRangesRef.current;
+  if(!ranges.length)return;
+  const safeStart=Math.max(0,Math.min(start,ranges.length-1));
+  for(let i=safeStart;i<Math.min(ranges.length,safeStart+3);i++){
+   const range=ranges[i];if(!range)continue;
+   for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-focus');
+  }
+  if(scroll&&documentKindRef.current==='epub'){
+   const first=ranges[safeStart];
+   const target=first?textDivsRef.current[first.start]:null;
+   target?.scrollIntoView({block:'center',behavior:'smooth'});
+  }
+ }
+
+ function setFocusPosition(next:number,scroll=true){
+  const total=focusSentenceRangesRef.current.length;if(!total)return;
+  const safe=Math.max(0,Math.min(next,total-1));
+  focusIndexRef.current=safe;setFocusIndex(safe);
+  highlightFocusBlock(safe,scroll);
+ }
+
+ function mapSegmentsToItems(items:string[],segments:string[]){
+  let normalized='';
+  const itemRanges:Array<{start:number;end:number}|null>=[];
+  for(let i=0;i<items.length;i++){
+   const clean=(items[i]||'').replace(/\s+/g,' ').trim();
+   if(!clean){itemRanges[i]=null;continue;}
+   if(normalized.length)normalized+=' ';
+   const start=normalized.length;normalized+=clean;itemRanges[i]={start,end:normalized.length};
+  }
+  let cursor=0;
+  return segments.map(segment=>{
+   const clean=segment.replace(/\s+/g,' ').trim();
+   const found=normalized.indexOf(clean,cursor);
+   const startChar=found>=0?found:cursor,endChar=startChar+clean.length;
+   let first=-1,last=-1;
+   for(let i=0;i<itemRanges.length;i++){
+    const range=itemRanges[i];if(!range)continue;
+    if(range.end>startChar&&range.start<endChar){if(first<0)first=i;last=i;}
+   }
+   cursor=endChar;
+   return {start:Math.max(0,first),end:Math.max(Math.max(0,first),last)};
+  });
+ }
+
  function highlightRange(range:{start:number;end:number}|undefined){
   clearSpokenHighlight();
   if(!highlightEnabledRef.current||!range)return;
@@ -611,6 +665,8 @@ export default function IpadReader(){
   textItemsRef.current=[];
   textDivsRef.current=[];
   sentenceRangesRef.current=[];
+  focusSentenceRangesRef.current=[];
+  setFocusSentenceCount(0);
   try{window.getSelection()?.removeAllRanges();}catch{}
   setSelectedText('');
   selectionStartRef.current={item:0,offset:0};
@@ -697,8 +753,15 @@ export default function IpadReader(){
   clearSelection();
 
   const list=chapter.clips;
-  textItemsRef.current=list.map(text=>({str:text,hasEOL:true}));
-  sentenceRangesRef.current=list.map((_,i)=>({start:i,end:i}));
+  const focusList=chapter.blocks.flatMap(block=>block.sentences);
+  const previousPage=pageRef.current;
+  textItemsRef.current=focusList.map(text=>({str:text,hasEOL:true}));
+  sentenceRangesRef.current=mapSegmentsToItems(focusList,list);
+  focusSentenceRangesRef.current=focusList.map((_,i)=>({start:i,end:i}));
+  setFocusSentenceCount(focusList.length);
+  const requestedFocusIndex=previousPage===chapterNumber?focusIndexRef.current:0;
+  const safeFocusIndex=Math.max(0,Math.min(requestedFocusIndex,Math.max(0,focusList.length-1)));
+  focusIndexRef.current=safeFocusIndex;setFocusIndex(safeFocusIndex);
   const requestedIndex=preservePlayback?indexRef.current:restoreIndex;
   const safeIndex=Math.max(0,Math.min(requestedIndex,Math.max(0,list.length-1)));
   pageRef.current=chapterNumber;sentencesRef.current=list;indexRef.current=safeIndex;
@@ -709,8 +772,9 @@ export default function IpadReader(){
   if(layer){
    const spans=Array.from(layer.querySelectorAll<HTMLElement>('[data-item]'));
    textDivsRef.current=spans;
-   sentenceRangesRef.current=spans.map((_,i)=>({start:i,end:i}));
+   focusSentenceRangesRef.current=spans.map((_,i)=>({start:i,end:i}));
   }else textDivsRef.current=[];
+  if(focusModeRef.current)highlightFocusBlock(safeFocusIndex,false);
 
   if(preservePlayback&&playWanted.current){highlightSentence(safeIndex);setMode('playing');setStage('Lendo');}
   else setStage(list.length?'Capítulo pronto para leitura':'Capítulo sem texto legível');
@@ -797,10 +861,18 @@ export default function IpadReader(){
    cursor=endChar;
   }
   sentenceRangesRef.current=mapped;
+  const focusList=splitIpadSentences(text);
+  focusSentenceRangesRef.current=mapSegmentsToItems(tc.items.map(item=>item.str||''),focusList);
+  setFocusSentenceCount(focusList.length);
+  const previousPage=pageRef.current;
+  const requestedFocusIndex=previousPage===n?focusIndexRef.current:0;
+  const safeFocusIndex=Math.max(0,Math.min(requestedFocusIndex,Math.max(0,focusList.length-1)));
+  focusIndexRef.current=safeFocusIndex;setFocusIndex(safeFocusIndex);
   const requestedIndex=preservePlayback?indexRef.current:restoreIndex;
   const safeIndex=Math.max(0,Math.min(requestedIndex,Math.max(0,list.length-1)));
   pageRef.current=n;sentencesRef.current=list;indexRef.current=safeIndex;
   setPage(n);setJumpValue(String(n));setSentences(list);setIndex(safeIndex);
+  if(focusModeRef.current)highlightFocusBlock(safeFocusIndex,false);
   if(preservePlayback&&playWanted.current){highlightSentence(safeIndex);setMode('playing');setStage('Lendo');}
   else setStage(list.length?'Página pronta para leitura':'Página sem texto selecionável');
   if(fileKey.current){
@@ -811,7 +883,7 @@ export default function IpadReader(){
  }
 
  async function openFile(file:File){
-  stop();pagePrefetch.current.clear();setError('');setStage('Preparando PDF…');setSentences([]);setIndex(0);
+  stop();pagePrefetch.current.clear();clearFocusHighlight();focusIndexRef.current=0;setFocusIndex(0);setFocusSentenceCount(0);setError('');setStage('Preparando PDF…');setSentences([]);setIndex(0);
   let stageName='início';
   try{
    stageName='carregar PDF.js clássico';
@@ -870,7 +942,7 @@ export default function IpadReader(){
  }
 
  async function openEpub(file:File){
-  stop();pagePrefetch.current.clear();setError('');setStage('Preparando EPUB…');setSentences([]);setIndex(0);
+  stop();pagePrefetch.current.clear();clearFocusHighlight();focusIndexRef.current=0;setFocusIndex(0);setFocusSentenceCount(0);setError('');setStage('Preparando EPUB…');setSentences([]);setIndex(0);
   try{
    const book=await parseEpub(file);
    await docRef.current?.destroy();
@@ -1409,12 +1481,44 @@ export default function IpadReader(){
   if(was){unlockAudioOnTap();playWanted.current=true;void playAt(next,list);}
  }
 
+ function toggleFocusMode(){
+  const next=!focusModeRef.current;
+  focusModeRef.current=next;setFocusMode(next);
+  if(!next){clearFocusHighlight();setStage('Modo foco desligado');return;}
+  if(!focusSentenceRangesRef.current.length){setStage('Sem frases disponíveis para o modo foco');return;}
+  const aligned=Math.floor(focusIndexRef.current/3)*3;
+  focusIndexRef.current=aligned;setFocusIndex(aligned);highlightFocusBlock(aligned);
+  setStage('Modo foco · avance 3 frases por toque');
+ }
+
+ async function moveFocusBlock(direction:-1|1){
+  const d=docRef.current;if(!d||!focusModeRef.current)return;
+  if(mode!=='idle'||playWanted.current)stop();
+  const step=3,total=focusSentenceRangesRef.current.length,current=focusIndexRef.current;
+  if(direction>0){
+   const next=current+step;
+   if(next<total){setFocusPosition(next);return;}
+   if(pageRef.current>=d.numPages)return;
+   try{await extractPage(d,pageRef.current+1,0);setFocusPosition(0);}
+   catch(e){setError(e instanceof Error?e.message:'Falha ao avançar o modo foco.');}
+   return;
+  }
+  const previous=current-step;
+  if(previous>=0){setFocusPosition(previous);return;}
+  if(pageRef.current<=1)return;
+  try{
+   await extractPage(d,pageRef.current-1,0);
+   const previousTotal=focusSentenceRangesRef.current.length;
+   setFocusPosition(previousTotal?Math.floor((previousTotal-1)/step)*step:0);
+  }catch(e){setError(e instanceof Error?e.message:'Falha ao voltar no modo foco.');}
+ }
+
  const active=sentences[index]||'';
  const isEpub=documentKind==='epub';
  const currentEpubChapter=isEpub?epubBook?.chapters[page-1]||null:null;
- let epubClipCursor=0;
+ let epubSentenceCursor=0;
  const epubRenderBlocks=currentEpubChapter?.blocks.map(block=>{
-  const start=epubClipCursor;epubClipCursor+=block.clips.length;
+  const start=epubSentenceCursor;epubSentenceCursor+=block.sentences.length;
   return {...block,start};
  })||[];
  const locationWord=isEpub?'cap.':'pág.';
@@ -1489,7 +1593,7 @@ export default function IpadReader(){
      <div className="mf-epub-kicker">CAPÍTULO {page} DE {pages}</div>
      <h1>{currentEpubChapter.title}</h1>
      {epubRenderBlocks.map((block,blockIndex)=>{
-      const content=block.clips.map((clip,clipIndex)=><span key={clipIndex} data-item={block.start+clipIndex} className="mf-epub-clip">{clip}{clipIndex<block.clips.length-1?' ':''}</span>);
+      const content=block.sentences.map((sentence,sentenceIndex)=><span key={sentenceIndex} data-item={block.start+sentenceIndex} className="mf-epub-clip">{sentence}{sentenceIndex<block.sentences.length-1?' ':''}</span>);
       if(block.kind==='heading')return <h2 key={blockIndex}>{content}</h2>;
       if(block.kind==='list')return <div key={blockIndex} className="mf-epub-list-item"><span className="mf-epub-bullet">•</span><span>{content}</span></div>;
       return <p key={blockIndex}>{content}</p>;
@@ -1562,6 +1666,14 @@ export default function IpadReader(){
     <button type="button" style={{...button,borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} disabled={!doc} onClick={stopAndClearAudio}>Parar</button>
     <button style={button} disabled={!sentences.length||index>=sentences.length-1} onClick={()=>moveSentence(1)}>Próximo trecho</button>
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>{isEpub?'Próximo capítulo':'Próxima página'}</button>
+   </div>
+   <div className="mf-focus-toolbar" style={{display:'flex',alignItems:'center',justifyContent:'center',gap:7,flexWrap:'wrap',marginTop:8}}>
+    <button type="button" style={focusMode?primary:button} disabled={!doc||!focusSentenceCount} aria-pressed={focusMode} onClick={toggleFocusMode}>{focusMode?'Modo foco ligado':'Modo foco · 3 frases'}</button>
+    {focusMode&&<>
+     <button type="button" style={button} disabled={page<=1&&focusIndex<=0} onClick={()=>void moveFocusBlock(-1)}>3 frases atrás</button>
+     <span style={{...small,fontWeight:700}}>Bloco {focusSentenceCount?Math.floor(focusIndex/3)+1:0} de {Math.max(1,Math.ceil(focusSentenceCount/3))}</span>
+     <button type="button" style={button} disabled={page>=pages&&focusIndex+3>=focusSentenceCount} onClick={()=>void moveFocusBlock(1)}>Próximas 3 frases</button>
+    </>}
    </div>
    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:8}}>
     <select aria-label="Voz" value={voice} onChange={e=>{stop();setVoice(e.target.value);persistPreferences({voice:e.target.value});}} style={{...button,padding:'7px 9px',maxWidth:'28%'}}>
@@ -1711,6 +1823,12 @@ export default function IpadReader(){
      {bookmarks.map(n=><option key={n} value={n}>{isEpub?'Capítulo':'Página'} {n}</option>)}
     </select>}
    </div>
+   {focusMode&&<div className="mf-focus-stepper" style={{position:'fixed',left:'50%',bottom:compactControls?'calc(62px + env(safe-area-inset-bottom, 0px))':'calc(10px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:31,display:'flex',alignItems:'center',gap:6,background:'rgba(255,253,248,.96)',border:'1px solid #b9d3bf',borderRadius:18,padding:6,boxShadow:'0 6px 22px rgba(0,0,0,.18)',whiteSpace:'nowrap'}}>
+    <button type="button" style={{...button,padding:'8px 10px'}} disabled={page<=1&&focusIndex<=0} onClick={()=>void moveFocusBlock(-1)}>← 3 frases</button>
+    <span style={{...small,fontWeight:800,color:'#1B3B2B'}}>Foco {focusSentenceCount?Math.floor(focusIndex/3)+1:0}/{Math.max(1,Math.ceil(focusSentenceCount/3))}</span>
+    <button type="button" style={{...primary,padding:'8px 11px'}} disabled={page>=pages&&focusIndex+3>=focusSentenceCount} onClick={()=>void moveFocusBlock(1)}>3 frases →</button>
+    <button type="button" style={{...button,padding:'8px 9px'}} onClick={toggleFocusMode}>Sair</button>
+   </div>}
    <form className="mf-compact-controls" onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
     <input
@@ -1725,6 +1843,7 @@ export default function IpadReader(){
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
+    <button type="button" style={{...(focusMode?primary:button),padding:'7px 9px'}} disabled={!focusSentenceCount} onClick={toggleFocusMode}>{focusMode?'Foco 3 ligado':'Foco 3'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
