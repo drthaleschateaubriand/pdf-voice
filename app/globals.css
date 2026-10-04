@@ -1314,5 +1314,3 @@ body{background:#F7F3EB;color:#1b1b1c}
 .mf-epub-clip.ipad-focus{background:#d9efdf;box-shadow:0 0 0 3px #d9efdf}
 [data-theme="dark"] .ipad-text-layer .ipad-focus{background:rgba(92,187,119,.34)!important;box-shadow:0 0 0 1px rgba(115,216,143,.12)!important}
 [data-theme="dark"] .mf-epub-clip.ipad-focus{background:#31563b;box-shadow:0 0 0 3px #31563b;color:#eef8f0}
-[data-theme="dark"] .mf-focus-stepper{background:rgba(18,26,21,.97)!important;border-color:#41634e!important}
-[data-theme="dark"] .mf-focus-stepper span{color:#dcebe0!important}
