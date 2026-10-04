@@ -529,9 +529,11 @@ export default function IpadReader(){
   const ranges=focusSentenceRangesRef.current;
   if(!ranges.length)return;
   const safeStart=Math.max(0,Math.min(start,ranges.length-1));
-  for(let i=safeStart;i<Math.min(ranges.length,safeStart+3);i++){
-   const range=ranges[i];if(!range)continue;
-   for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-focus');
+  if(highlightEnabledRef.current){
+   for(let i=safeStart;i<Math.min(ranges.length,safeStart+3);i++){
+    const range=ranges[i];if(!range)continue;
+    for(let n=range.start;n<=range.end;n++)textDivsRef.current[n]?.classList.add('ipad-focus');
+   }
   }
   if(scroll&&documentKindRef.current==='epub'){
    const first=ranges[safeStart];
@@ -1442,8 +1444,13 @@ export default function IpadReader(){
   highlightEnabledRef.current=next;
   setHighlightEnabled(next);
   persistPreferences({highlightEnabled:next});
-  if(!next)clearSpokenHighlight();
-  else if(mode==='playing'||mode==='loading')highlightSentence(indexRef.current);
+  if(!next){
+   clearSpokenHighlight();
+   clearFocusHighlight();
+   return;
+  }
+  if(mode==='playing'||mode==='loading')highlightSentence(indexRef.current);
+  if(focusModeRef.current)highlightFocusBlock(focusIndexRef.current,false);
  }
 
  useEffect(()=>{
@@ -1834,6 +1841,18 @@ export default function IpadReader(){
     </select>}
    </div>
    <form className="mf-compact-controls" onSubmit={e=>{e.preventDefault();jumpToPage();}} style={{position:'fixed',left:'50%',bottom:'calc(8px + env(safe-area-inset-bottom, 0px))',transform:'translateX(-50%)',zIndex:30,display:'flex',alignItems:'center',gap:5,background:'rgba(255,253,248,.94)',border:'1px solid #cfc7b9',borderRadius:16,padding:5,boxShadow:'0 4px 18px rgba(0,0,0,.18)'}}>
+    <button
+     type="button"
+     className={focusMode?'mf-focus-inline-button active':'mf-focus-inline-button'}
+     aria-pressed={focusMode}
+     aria-label={focusMode?'Voltar três frases':'Ativar modo foco de três frases'}
+     title={focusMode?'Voltar 3 frases':'Ativar foco em blocos de 3 frases'}
+     disabled={!focusSentenceCount||(focusMode&&page<=1&&focusIndex<=0)}
+     onClick={()=>{if(focusMode)void moveFocusBlock(-1);else toggleFocusMode();}}
+    >
+     <span>{focusMode?'3':'Foco'}</span>
+     <small>{focusMode?'← frases':'3'}</small>
+    </button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page<=1} onClick={()=>void goPage(page-1)}>Anterior</button>
     <input
      aria-label={isEpub?'Número do capítulo':'Número da página'}
@@ -1848,7 +1867,7 @@ export default function IpadReader(){
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
-    <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Retirar destaque':'Mostrar destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
     <button type="button" className="mf-theme-toggle" style={{...button,padding:'7px 9px'}} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
