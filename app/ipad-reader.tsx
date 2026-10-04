@@ -401,7 +401,7 @@ export default function IpadReader(){
    highlightEnabledRef.current=prefs.highlight_enabled;
    setHighlightEnabled(prefs.highlight_enabled);
    persistPreferences({highlightEnabled:prefs.highlight_enabled});
-   if(!prefs.highlight_enabled)clearSpokenHighlight();
+   if(!prefs.highlight_enabled){clearSpokenHighlight();clearFocusHighlight();}
   }
  }
 
@@ -1867,7 +1867,7 @@ export default function IpadReader(){
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
-    <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Retirar destaque':'Mostrar destaque'}</button>
+    <button type="button" aria-label={highlightEnabled?'Retirar destaque':'Mostrar destaque'} style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Sem destaque':'Destacar'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
     <button type="button" className="mf-theme-toggle" style={{...button,padding:'7px 9px'}} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
