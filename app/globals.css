@@ -1314,3 +1314,46 @@ body{background:#F7F3EB;color:#1b1b1c}
 .mf-epub-clip.ipad-focus{background:#d9efdf;box-shadow:0 0 0 3px #d9efdf}
 [data-theme="dark"] .ipad-text-layer .ipad-focus{background:rgba(92,187,119,.34)!important;box-shadow:0 0 0 1px rgba(115,216,143,.12)!important}
 [data-theme="dark"] .mf-epub-clip.ipad-focus{background:#31563b;box-shadow:0 0 0 3px #31563b;color:#eef8f0}
+
+
+/* Apollo 12.4: focus control stays fixed in the bottom toolbar. */
+.mf-focus-inline-button{
+ width:54px;
+ min-width:54px;
+ height:44px;
+ flex:0 0 54px;
+ border:1px solid #d7d0c4;
+ border-radius:999px;
+ background:#fffdf8;
+ color:#1B3B2B;
+ box-shadow:0 3px 12px rgba(60,48,30,.10);
+ display:grid;
+ place-content:center;
+ gap:1px;
+ padding:0;
+ font-family:"Plus Jakarta Sans",Inter,system-ui,sans-serif;
+ line-height:1;
+ text-align:center;
+ touch-action:manipulation;
+ -webkit-tap-highlight-color:transparent;
+}
+.mf-focus-inline-button span{font-size:12px;font-weight:900}
+.mf-focus-inline-button small{font-size:9px;font-weight:800;line-height:1}
+.mf-focus-inline-button.active{
+ background:#1B3B2B;
+ border-color:#1B3B2B;
+ color:#fff;
+ box-shadow:0 4px 14px rgba(27,59,43,.22);
+}
+.mf-focus-inline-button:active{transform:scale(.96)}
+.mf-focus-inline-button:disabled{opacity:.42;box-shadow:none}
+[data-theme="dark"] .mf-focus-inline-button{
+ background:#18231D;
+ border-color:#34463C;
+ color:#EAF0EC;
+}
+[data-theme="dark"] .mf-focus-inline-button.active{
+ background:#315F49;
+ border-color:#315F49;
+ color:#fff;
+}
