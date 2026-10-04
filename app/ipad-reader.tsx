@@ -1523,11 +1523,14 @@ export default function IpadReader(){
  function handleReaderTap(){
   const selection=window.getSelection();
   if(selection&&!selection.isCollapsed)return;
-  if(compact&&focusModeRef.current){
+  if(!compact)return;
+  if(focusModeRef.current){
    void moveFocusBlock(1);
    return;
   }
-  if(compact)setCompactControls(value=>!value);
+  const d=docRef.current;
+  if(d&&pageRef.current<d.numPages)void goPage(pageRef.current+1);
+  else setStage('Fim do documento');
  }
 
  const active=sentences[index]||'';
@@ -1823,6 +1826,27 @@ export default function IpadReader(){
     </>}
    </div>
   </div>}
+
+  {compact&&doc&&<>
+   <button
+    type="button"
+    className="mf-page-edge-nav mf-page-edge-nav-left"
+    aria-label={isEpub?'Capítulo anterior':'Página anterior'}
+    title={isEpub?'Capítulo anterior':'Página anterior'}
+    disabled={page<=1}
+    onPointerDown={event=>event.stopPropagation()}
+    onClick={event=>{event.stopPropagation();void goPage(page-1);}}
+   >&lt;</button>
+   <button
+    type="button"
+    className="mf-page-edge-nav mf-page-edge-nav-right"
+    aria-label={isEpub?'Próximo capítulo':'Próxima página'}
+    title={isEpub?'Próximo capítulo':'Próxima página'}
+    disabled={page>=pages}
+    onPointerDown={event=>event.stopPropagation()}
+    onClick={event=>{event.stopPropagation();void goPage(page+1);}}
+   >&gt;</button>
+  </>}
 
   {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
    <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
