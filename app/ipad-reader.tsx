@@ -1817,20 +1817,6 @@ export default function IpadReader(){
    </div>
   </div>}
 
-  {compact&&doc&&focusMode&&<button
-   type="button"
-   className="mf-focus-thumb-next"
-   aria-label="Avançar três frases"
-   title="Avançar 3 frases"
-   disabled={page>=pages&&focusIndex+3>=focusSentenceCount}
-   onPointerDown={event=>event.stopPropagation()}
-   onClick={event=>{event.stopPropagation();void moveFocusBlock(1);}}
-  >
-   <span>3</span>
-   <strong>frases</strong>
-   <b aria-hidden="true">›</b>
-  </button>}
-
   {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
    <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
    <button type="button" onPointerDown={e=>e.preventDefault()} style={{...primary,padding:'7px 10px'}} onClick={readSelectionOnly}>Ler seleção</button>
@@ -1867,13 +1853,20 @@ export default function IpadReader(){
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
-    <button type="button" style={{...(focusMode?primary:button),padding:'7px 9px'}} disabled={!focusSentenceCount} onClick={toggleFocusMode}>{focusMode?'Foco 3 ligado':'Foco 3'}</button>
+    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Destaque':'Sem destaque'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} disabled={page>=pages} onClick={()=>void goPage(page+1)}>Próxima</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>{setCompact(false);setPageSidebarOpen(true);}}>Navegar</button>
     <button type="button" className="mf-theme-toggle" style={{...button,padding:'7px 9px'}} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompactControls(false)}>Ocultar</button>
-    <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
+    <button
+     type="button"
+     aria-pressed={focusMode}
+     aria-label={focusMode?'Avançar três frases':'Ativar modo foco de três frases'}
+     style={{...(focusMode?primary:button),padding:'7px 10px',fontWeight:800}}
+     disabled={!focusSentenceCount||(focusMode&&page>=pages&&focusIndex+3>=focusSentenceCount)}
+     onClick={()=>{if(focusMode)void moveFocusBlock(1);else toggleFocusMode();}}
+    >{focusMode?'3 frases →':'Foco 3'}</button>
    </form>
   </>}
  </main>;
