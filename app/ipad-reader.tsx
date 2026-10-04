@@ -1513,6 +1513,16 @@ export default function IpadReader(){
   }catch(e){setError(e instanceof Error?e.message:'Falha ao voltar no modo foco.');}
  }
 
+ function handleReaderTap(){
+  const selection=window.getSelection();
+  if(selection&&!selection.isCollapsed)return;
+  if(compact&&focusModeRef.current){
+   void moveFocusBlock(1);
+   return;
+  }
+  if(compact)setCompactControls(value=>!value);
+ }
+
  const active=sentences[index]||'';
  const isEpub=documentKind==='epub';
  const currentEpubChapter=isEpub?epubBook?.chapters[page-1]||null:null;
@@ -1579,7 +1589,7 @@ export default function IpadReader(){
       className="textLayer ipad-text-layer"
       onPointerUp={()=>window.setTimeout(captureSelection,0)}
       onTouchEnd={()=>window.setTimeout(captureSelection,0)}
-      onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
+      onClick={handleReaderTap}
      />
     </div>}
     {documentKind==='epub'&&currentEpubChapter&&<article
@@ -1588,7 +1598,7 @@ export default function IpadReader(){
      aria-label={'Capítulo '+page+': '+currentEpubChapter.title}
      onPointerUp={()=>window.setTimeout(captureSelection,0)}
      onTouchEnd={()=>window.setTimeout(captureSelection,0)}
-     onClick={()=>{const s=window.getSelection();if(compact&&(!s||s.isCollapsed))setCompactControls(v=>!v);}}
+     onClick={handleReaderTap}
     >
      <div className="mf-epub-kicker">CAPÍTULO {page} DE {pages}</div>
      <h1>{currentEpubChapter.title}</h1>
@@ -1806,6 +1816,20 @@ export default function IpadReader(){
     </>}
    </div>
   </div>}
+
+  {compact&&doc&&focusMode&&<button
+   type="button"
+   className="mf-focus-thumb-next"
+   aria-label="Avançar três frases"
+   title="Avançar 3 frases"
+   disabled={page>=pages&&focusIndex+3>=focusSentenceCount}
+   onPointerDown={event=>event.stopPropagation()}
+   onClick={event=>{event.stopPropagation();void moveFocusBlock(1);}}
+  >
+   <span>3</span>
+   <strong>frases</strong>
+   <b aria-hidden="true">›</b>
+  </button>}
 
   {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
    <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
