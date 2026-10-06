@@ -384,7 +384,14 @@ export type CloudStudyState<T=unknown>={
  version:number;
  updatedAt:string;
  bank:T|null;
- settings?:Record<string,number>;
+ settings?:{
+  againMinutes?:number;
+  hardDays?:number;
+  goodDays?:number;
+  easyDays?:number;
+  growthFactor?:number;
+  maxDays?:number;
+ };
 };
 
 const cloudStudyStatePath=(userId:string)=>userId+'/study/spaced-review-state.json';
