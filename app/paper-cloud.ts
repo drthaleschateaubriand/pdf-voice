@@ -378,3 +378,53 @@ export async function deleteCloudBook(book:Pick<CloudLibraryBook,'id'|'storage_p
  if(!record.res.ok)throw new Error('Não foi possível excluir o livro da biblioteca.');
  return {storageDeleted};
 }
+
+
+export type CloudStudyState<T=unknown>={
+ version:number;
+ updatedAt:string;
+ bank:T|null;
+ settings?:Record<string,number>;
+};
+
+const cloudStudyStatePath=(userId:string)=>userId+'/study/spaced-review-state.json';
+
+export async function loadCloudStudyState<T=unknown>():Promise<CloudStudyState<T>|null>{
+ const session=await getCloudSession();
+ if(!session)return null;
+ const path=cloudStudyStatePath(session.user.id);
+ const url=SUPABASE_URL+'/storage/v1/object/authenticated/pdfs/'+encodeStoragePath(path);
+ const res=await fetch(url,{headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+session.access_token}});
+ if(res.status===404)return null;
+ if(!res.ok)throw new Error('Não foi possível carregar a revisão espaçada da nuvem.');
+ try{
+  return JSON.parse(await res.text()) as CloudStudyState<T>;
+ }catch{
+  throw new Error('O arquivo de revisão salvo na nuvem está inválido.');
+ }
+}
+
+export async function saveCloudStudyState<T=unknown>(state:CloudStudyState<T>){
+ const session=await getCloudSession();
+ if(!session)return false;
+ const path=cloudStudyStatePath(session.user.id);
+ const url=SUPABASE_URL+'/storage/v1/object/pdfs/'+encodeStoragePath(path);
+ const body=JSON.stringify(state);
+ const res=await fetch(url,{
+  method:'POST',
+  headers:{
+   apikey:SUPABASE_KEY,
+   Authorization:'Bearer '+session.access_token,
+   'Content-Type':'application/pdf',
+   'x-upsert':'true',
+   'Cache-Control':'no-cache'
+  },
+  body
+ });
+ if(!res.ok){
+  let detail='';
+  try{detail=await res.text();}catch{}
+  throw new Error('Não foi possível salvar a revisão espaçada na nuvem.'+(detail?' '+detail:''));
+ }
+ return true;
+}
