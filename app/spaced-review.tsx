@@ -249,19 +249,19 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
 
  useEffect(()=>{
   if(!cloudReady)return;
+  const updatedAt=new Date().toISOString();
   try{
    if(bank)localStorage.setItem(BANK_KEY,JSON.stringify(bank));
    else localStorage.removeItem(BANK_KEY);
    localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));
+   localStorage.setItem(CLOUD_STAMP_KEY,updatedAt);
   }catch{}
   const timer=window.setTimeout(()=>{
    void (async()=>{
     try{
      const session=await getCloudSession();
      if(!session){setCloudStatus("Somente neste aparelho");return;}
-     const updatedAt=new Date().toISOString();
      await saveCloudStudyState({version:1,updatedAt,bank,settings});
-     try{localStorage.setItem(CLOUD_STAMP_KEY,updatedAt);}catch{}
      setCloudStatus("Nuvem sincronizada");
     }catch{
      setCloudStatus("Nuvem indisponível · salvo neste aparelho");
