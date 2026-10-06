@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect,useMemo,useRef,useState} from "react";
+import {getCloudSession,loadCloudStudyState,saveCloudStudyState} from "./paper-cloud";
 
 type Rating="again"|"hard"|"good"|"easy"|"manual";
 type ReviewState={
@@ -37,6 +38,7 @@ type SchedulerSettings={
 
 const BANK_KEY="meu-foco-spaced-review-v1";
 const SETTINGS_KEY="meu-foco-spaced-review-settings-v1";
+const CLOUD_STAMP_KEY="meu-foco-spaced-review-cloud-stamp-v1";
 const DEFAULT_SETTINGS:SchedulerSettings={againMinutes:10,hardDays:1,goodDays:3,easyDays:7,growthFactor:2.2,maxDays:365};
 
 const makeId=(prefix="q")=>{
@@ -54,6 +56,14 @@ const formatDate=(value:string|null)=>{
  try{return new Date(value).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"});}catch{return value;}
 };
 const isDue=(q:StudyQuestion)=>!q.review.nextReview||new Date(q.review.nextReview).getTime()<=Date.now();
+type Performance="unseen"|"again"|"hard"|"good"|"easy";
+const performanceOf=(q:StudyQuestion):Performance=>{
+ if(!q.review.reps)return "unseen";
+ const last=[...q.review.history].reverse().find(item=>item.rating!=="manual")?.rating;
+ if(last==="again"||last==="hard"||last==="good"||last==="easy")return last;
+ if(q.review.lastRating==="again"||q.review.lastRating==="hard"||q.review.lastRating==="good"||q.review.lastRating==="easy")return q.review.lastRating;
+ return "unseen";
+};
 
 function emptyReview():ReviewState{
  return {nextReview:null,lastReview:null,intervalDays:0,reps:0,lapses:0,lastRating:null,history:[]};
@@ -181,24 +191,93 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
  const [manualValue,setManualValue]=useState(7);
  const [manualUnit,setManualUnit]=useState<"minutes"|"hours"|"days"|"weeks">("days");
  const [message,setMessage]=useState("");
+ const [cloudStatus,setCloudStatus]=useState("Verificando nuvem…");
+ const [cloudReady,setCloudReady]=useState(false);
 
  useEffect(()=>{
-  try{
-   const saved=localStorage.getItem(BANK_KEY);
-   if(saved)setBank(JSON.parse(saved));
-   const prefs=localStorage.getItem(SETTINGS_KEY);
-   if(prefs)setSettings({...DEFAULT_SETTINGS,...JSON.parse(prefs)});
-  }catch{}
+  let cancelled=false;
+  void (async()=>{
+   let localBank:StudyBank|null=null;
+   let localSettings:SchedulerSettings={...DEFAULT_SETTINGS};
+   let localStamp="";
+   try{
+    const saved=localStorage.getItem(BANK_KEY);
+    if(saved)localBank=JSON.parse(saved) as StudyBank;
+    const prefs=localStorage.getItem(SETTINGS_KEY);
+    if(prefs)localSettings={...DEFAULT_SETTINGS,...JSON.parse(prefs)};
+    localStamp=localStorage.getItem(CLOUD_STAMP_KEY)||"";
+   }catch{}
+   if(cancelled)return;
+   if(localBank)setBank(localBank);
+   setSettings(localSettings);
+
+   try{
+    const session=await getCloudSession();
+    if(cancelled)return;
+    if(!session){
+     setCloudStatus("Somente neste aparelho");
+     setCloudReady(true);
+     return;
+    }
+    const cloud=await loadCloudStudyState<StudyBank>();
+    if(cancelled)return;
+    const localTime=Date.parse(localStamp)||0;
+    const cloudTime=cloud?.updatedAt?Date.parse(cloud.updatedAt)||0:0;
+    if(cloud?.bank&&(!localBank||cloudTime>localTime)){
+     const cloudBank=normalizeBank(cloud.bank);
+     const cloudSettings={...DEFAULT_SETTINGS,...(cloud.settings||{})} as SchedulerSettings;
+     setBank(cloudBank);
+     setSettings(cloudSettings);
+     try{
+      localStorage.setItem(BANK_KEY,JSON.stringify(cloudBank));
+      localStorage.setItem(SETTINGS_KEY,JSON.stringify(cloudSettings));
+      localStorage.setItem(CLOUD_STAMP_KEY,cloud.updatedAt);
+     }catch{}
+    }else if(localBank){
+     const updatedAt=localStamp||new Date().toISOString();
+     await saveCloudStudyState({version:1,updatedAt,bank:localBank,settings:localSettings});
+    }
+    if(!cancelled)setCloudStatus("Nuvem sincronizada");
+   }catch{
+    if(!cancelled)setCloudStatus("Nuvem indisponível · salvo neste aparelho");
+   }finally{
+    if(!cancelled)setCloudReady(true);
+   }
+  })();
+  return()=>{cancelled=true;};
  },[]);
 
  useEffect(()=>{
-  if(!bank)return;
-  try{localStorage.setItem(BANK_KEY,JSON.stringify(bank));}catch{}
- },[bank]);
+  if(!cloudReady)return;
+  try{
+   if(bank)localStorage.setItem(BANK_KEY,JSON.stringify(bank));
+   else localStorage.removeItem(BANK_KEY);
+   localStorage.setItem(SETTINGS_KEY,JSON.stringify(settings));
+  }catch{}
+  const timer=window.setTimeout(()=>{
+   void (async()=>{
+    try{
+     const session=await getCloudSession();
+     if(!session){setCloudStatus("Somente neste aparelho");return;}
+     const updatedAt=new Date().toISOString();
+     await saveCloudStudyState({version:1,updatedAt,bank,settings});
+     try{localStorage.setItem(CLOUD_STAMP_KEY,updatedAt);}catch{}
+     setCloudStatus("Nuvem sincronizada");
+    }catch{
+     setCloudStatus("Nuvem indisponível · salvo neste aparelho");
+    }
+   })();
+  },700);
+  return()=>window.clearTimeout(timer);
+ },[bank,settings,cloudReady]);
 
  const allQuestions=useMemo(()=>bank?bank.groups.flatMap(g=>g.sections.flatMap(s=>s.questions)):[],[bank]);
  const totalDue=allQuestions.filter(isDue).length;
  const totalReviews=allQuestions.reduce((sum,q)=>sum+q.review.reps,0);
+ const performanceCounts=useMemo(()=>allQuestions.reduce((acc,q)=>{
+  acc[performanceOf(q)]++;
+  return acc;
+ },{unseen:0,again:0,hard:0,good:0,easy:0} as Record<Performance,number>),[allQuestions]);
 
  const filteredGroups=useMemo(()=>{
   if(!bank)return [];
@@ -234,6 +313,11 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
   showMessage(normalized.groups.reduce((sum,g)=>sum+g.sections.reduce((n,s)=>n+s.questions.length,0),0)+" perguntas importadas sem alteração do conteúdo.");
  }
 
+ function startCustomReview(candidates:StudyQuestion[]){
+  if(!candidates.length){showMessage("Nenhuma pergunta neste grupo.");return;}
+  setQueue(shuffle(candidates));setQueueIndex(0);setAnswerShown(false);setTab("review");
+ }
+
  function startReview(scopeOverride?:{scope:"all"|"group";group?:string}){
   if(!bank){showMessage("Importe um banco de questões primeiro.");return;}
   const scope=scopeOverride?.scope||reviewScope;
@@ -246,7 +330,7 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
    candidates=group?group.sections.flatMap(s=>s.questions):[];
   }else candidates=allQuestions.filter(isDue);
   if(!candidates.length){showMessage("Nenhuma pergunta disponível nesse filtro.");return;}
-  setQueue(shuffle(candidates));setQueueIndex(0);setAnswerShown(false);setTab("review");
+  startCustomReview(candidates);
  }
 
  function updateQuestion(questionId:string,updater:(q:StudyQuestion)=>StudyQuestion){
@@ -277,7 +361,7 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
   if(!current||!manualValue||manualValue<1)return;
   const due=addDuration(new Date(),manualValue,manualUnit);
   const at=new Date().toISOString();
-  updateQuestion(current.id,q=>({...q,review:{...q.review,nextReview:due.toISOString(),lastRating:"manual",history:[...q.review.history,{at,rating:"manual",nextReview:due.toISOString()}]}}));
+  updateQuestion(current.id,q=>({...q,review:{...q.review,nextReview:due.toISOString(),history:[...q.review.history,{at,rating:"manual",nextReview:due.toISOString()}]}}));
   showMessage("Próxima revisão: "+formatDate(due.toISOString()));
  }
 
@@ -317,23 +401,25 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
    .mf-spaced-tabs{display:flex;gap:7px;flex-wrap:wrap;justify-content:center}.mf-spaced-btn{border:1px solid #E5DED2;background:#fff;border-radius:999px;padding:10px 14px;color:#1B3B2B;font-weight:750;cursor:pointer}.mf-spaced-btn.active,.mf-spaced-btn.primary{background:#1B3B2B;color:white;border-color:#1B3B2B}.mf-spaced-btn.danger{color:#9b3c35}.mf-spaced-close{white-space:nowrap}
    .mf-spaced-main{max-width:1180px;margin:0 auto;padding:28px clamp(14px,3vw,34px) 80px}.mf-spaced-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:22px}.mf-spaced-hero h2{font:700 38px Georgia,serif;color:#1B3B2B;margin:0 0 6px}.mf-spaced-hero p{margin:0;color:#6C665E;line-height:1.55}.mf-spaced-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
    .mf-spaced-input{border:1px solid #E5DED2;background:#fff;border-radius:12px;padding:11px 12px;color:#1B1B1C;min-width:0}.mf-spaced-toolbar{display:grid;grid-template-columns:minmax(220px,1fr) 260px auto;gap:10px;margin-bottom:18px}
-   .mf-spaced-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 24px}.mf-spaced-stat{background:white;border:1px solid #E5DED2;border-radius:18px;padding:16px}.mf-spaced-stat span{font-size:12px;color:#6C665E}.mf-spaced-stat strong{display:block;font:700 28px Georgia,serif;color:#1B3B2B;margin-top:4px}
+   .mf-spaced-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 18px}.mf-spaced-stat{background:white;border:1px solid #E5DED2;border-radius:18px;padding:16px}.mf-spaced-stat span{font-size:12px;color:#6C665E}.mf-spaced-stat strong{display:block;font:700 28px Georgia,serif;color:#1B3B2B;margin-top:4px}
+   .mf-domain{background:#fff;border:1px solid #E5DED2;border-radius:22px;padding:18px;margin:0 0 24px;box-shadow:0 8px 26px rgba(60,48,30,.05)}.mf-domain-head{display:flex;justify-content:space-between;gap:12px;align-items:end;margin-bottom:13px}.mf-domain-head h3{margin:0;font:700 22px Georgia,serif;color:#1B3B2B}.mf-domain-head p{margin:3px 0 0;color:#6C665E;font-size:13px}.mf-domain-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:9px}.mf-domain-card{border:1px solid transparent;border-radius:16px;padding:12px;text-align:left;cursor:pointer}.mf-domain-card span{display:block;font-size:11px;font-weight:800}.mf-domain-card strong{display:block;font:800 25px Georgia,serif;margin-top:3px}.mf-domain-card.unseen{background:#efefed;color:#666}.mf-domain-card.again{background:#f7e3e1;color:#8c2f2f}.mf-domain-card.hard{background:#f4ead8;color:#825b1d}.mf-domain-card.good{background:#e1efe7;color:#1f623e}.mf-domain-card.easy{background:#d2e7df;color:#164d36}.mf-domain-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:14px}.mf-domain-dot{width:17px;height:17px;border:0;border-radius:5px;cursor:pointer;padding:0}.mf-domain-dot.unseen{background:#c8c8c4}.mf-domain-dot.again{background:#d96b64}.mf-domain-dot.hard{background:#d8ad57}.mf-domain-dot.good{background:#65a87f}.mf-domain-dot.easy{background:#2f7652}.mf-cloud-pill{font-size:11px;font-weight:800;border:1px solid #D7D0C6;border-radius:999px;padding:7px 10px;background:#fff;color:#5f5a53;white-space:nowrap}
    .mf-spaced-empty{padding:50px 20px;text-align:center;border:1px dashed #cec5ba;border-radius:22px;background:rgba(255,255,255,.5);color:#6C665E}.mf-spaced-empty h3{color:#1B3B2B}
    .mf-spaced-tree{display:grid;gap:14px}.mf-spaced-group{background:white;border:1px solid #E5DED2;border-radius:22px;overflow:hidden;box-shadow:0 8px 26px rgba(60,48,30,.06)}.mf-spaced-group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px}.mf-spaced-group-head h3{margin:0;font:700 22px Georgia,serif;color:#1B3B2B}.mf-spaced-group-head small{color:#6C665E}.mf-spaced-section{border-top:1px solid #E5DED2;padding:14px 20px}.mf-spaced-section h4{margin:0 0 10px;color:#E76F3B}.mf-spaced-row{display:grid;grid-template-columns:48px 1fr auto;gap:10px;padding:11px 0;border-top:1px solid #f0ebe4}.mf-spaced-row:first-of-type{border-top:0}.mf-spaced-row .n{font-size:12px;color:#948b82}.mf-spaced-row b{display:block;line-height:1.45}.mf-spaced-row p{margin:5px 0 0;color:#6C665E;line-height:1.5}.mf-spaced-pill{border:1px solid #E5DED2;border-radius:999px;padding:6px 9px;font-size:11px;color:#6C665E;height:max-content}
    .mf-spaced-paper{background:#fff;border:1px solid #E5DED2;box-shadow:0 10px 30px rgba(60,48,30,.08);max-width:900px;min-height:1100px;margin:0 auto;padding:42px 54px}.mf-spaced-paper h1{font:700 30px Georgia,serif;color:#1B3B2B;margin:0}.mf-spaced-paper .meta{color:#6C665E;margin:6px 0 28px}.mf-spaced-paper .q{padding:13px 0;border-bottom:1px solid #ece6dc;break-inside:avoid}.mf-spaced-paper .n{font-size:10px;color:#8f877e;font-weight:800;letter-spacing:.06em}.mf-spaced-paper .qq{font-weight:750;line-height:1.55;margin-top:4px}.mf-spaced-paper .aa{margin-top:7px;line-height:1.65;color:#4f4a44;white-space:pre-wrap}
    .mf-spaced-review{max-width:820px;margin:0 auto}.mf-spaced-review-top{display:flex;justify-content:space-between;color:#6C665E;font-size:13px;margin-bottom:8px}.mf-spaced-card{background:white;border:1px solid #E5DED2;border-radius:26px;padding:clamp(20px,4vw,40px);box-shadow:0 10px 30px rgba(60,48,30,.08)}.mf-spaced-label{font-size:11px;letter-spacing:.14em;color:#E76F3B;font-weight:800;margin-bottom:9px}.mf-spaced-card h3{font:700 clamp(24px,4vw,34px)/1.3 Georgia,serif;color:#1B3B2B;margin:0 0 26px}.mf-spaced-answer{border-top:1px solid #E5DED2;padding-top:22px;margin-top:18px;font-size:18px;line-height:1.7;white-space:pre-wrap}.mf-spaced-wide{width:100%;justify-content:center}.mf-spaced-ratings{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:20px}.mf-spaced-rate{border:0;border-radius:14px;padding:14px 10px;font-weight:800;cursor:pointer}.mf-spaced-rate.again{background:#f7e3e1;color:#8c2f2f}.mf-spaced-rate.hard{background:#f4ead8;color:#825b1d}.mf-spaced-rate.good{background:#e1efe7;color:#1f623e}.mf-spaced-rate.easy{background:#dcebea;color:#205d5b}.mf-spaced-manual{margin-top:22px;border-top:1px solid #E5DED2;padding-top:16px}.mf-spaced-manual summary{cursor:pointer;font-weight:800;color:#1B3B2B}.mf-spaced-manual-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;margin-top:12px}
    .mf-spaced-settings{background:#fff;border:1px solid #E5DED2;border-radius:22px;padding:22px;box-shadow:0 8px 26px rgba(60,48,30,.06)}.mf-spaced-form{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}.mf-spaced-form label{font-size:13px;font-weight:750;color:#1B3B2B}.mf-spaced-form input{width:100%;margin-top:7px}.mf-spaced-note{color:#6C665E;line-height:1.6;font-size:13px;margin-top:18px}.mf-spaced-msg{position:fixed;right:20px;bottom:20px;z-index:4;background:#1B3B2B;color:white;border-radius:12px;padding:12px 16px;box-shadow:0 10px 30px #0002}
-   @media(max-width:850px){.mf-spaced-top{align-items:flex-start;flex-wrap:wrap}.mf-spaced-tabs{order:3;width:100%;justify-content:flex-start}.mf-spaced-hero{align-items:flex-start;flex-direction:column}.mf-spaced-actions{justify-content:flex-start}.mf-spaced-toolbar{grid-template-columns:1fr}.mf-spaced-stats{grid-template-columns:repeat(2,1fr)}.mf-spaced-ratings{grid-template-columns:repeat(2,1fr)}.mf-spaced-form{grid-template-columns:1fr}.mf-spaced-paper{padding:26px 20px}.mf-spaced-row{grid-template-columns:38px 1fr}.mf-spaced-pill{grid-column:2}}
+   @media(max-width:850px){.mf-spaced-top{align-items:flex-start;flex-wrap:wrap}.mf-spaced-tabs{order:3;width:100%;justify-content:flex-start}.mf-spaced-hero{align-items:flex-start;flex-direction:column}.mf-spaced-actions{justify-content:flex-start}.mf-spaced-toolbar{grid-template-columns:1fr}.mf-spaced-stats{grid-template-columns:repeat(2,1fr)}.mf-domain-cards{grid-template-columns:repeat(2,1fr)}.mf-spaced-ratings{grid-template-columns:repeat(2,1fr)}.mf-spaced-form{grid-template-columns:1fr}.mf-spaced-paper{padding:26px 20px}.mf-spaced-row{grid-template-columns:38px 1fr}.mf-spaced-pill{grid-column:2}}
   `}</style>
 
   <header className="mf-spaced-top">
-   <div className="mf-spaced-brand"><div className="mf-spaced-mark">MF</div><div><strong>Revisão Espaçada</strong><small>MEU FOCO · APOLLO 13</small></div></div>
+   <div className="mf-spaced-brand"><div className="mf-spaced-mark">MF</div><div><strong>Revisão Espaçada</strong><small>MEU FOCO · APOLLO 13.1</small></div></div>
    <nav className="mf-spaced-tabs">
     <button className={"mf-spaced-btn "+(tab==="bank"?"active":"")} onClick={()=>setTab("bank")}>Banco</button>
     <button className={"mf-spaced-btn "+(tab==="reader"?"active":"")} onClick={()=>setTab("reader")}>Leitura</button>
     <button className={"mf-spaced-btn "+(tab==="review"?"active":"")} onClick={()=>setTab("review")}>Revisão</button>
     <button className={"mf-spaced-btn "+(tab==="settings"?"active":"")} onClick={()=>setTab("settings")}>Configurações</button>
    </nav>
+   <span className="mf-cloud-pill">{cloudStatus}</span>
    <button className="mf-spaced-btn mf-spaced-close" onClick={onClose}>Voltar ao leitor</button>
   </header>
 
@@ -356,6 +442,17 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
      <div className="mf-spaced-stat"><span>Temas</span><strong>{bank?.groups.length||0}</strong></div>
      <div className="mf-spaced-stat"><span>Revisões realizadas</span><strong>{totalReviews}</strong></div>
     </div>
+    {bank&&<section className="mf-domain">
+     <div className="mf-domain-head"><div><h3>Mapa de domínio</h3><p>Clique em uma cor para revisar somente aquele grupo.</p></div><button className="mf-spaced-btn" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="again"||performanceOf(q)==="hard"))}>Revisar erros + difíceis</button></div>
+     <div className="mf-domain-cards">
+      <button className="mf-domain-card unseen" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="unseen"))}><span>NÃO REVISADAS</span><strong>{performanceCounts.unseen}</strong></button>
+      <button className="mf-domain-card again" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="again"))}><span>ERRADAS</span><strong>{performanceCounts.again}</strong></button>
+      <button className="mf-domain-card hard" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="hard"))}><span>DIFÍCEIS / DÚVIDA</span><strong>{performanceCounts.hard}</strong></button>
+      <button className="mf-domain-card good" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="good"))}><span>LEMBRADAS</span><strong>{performanceCounts.good}</strong></button>
+      <button className="mf-domain-card easy" onClick={()=>startCustomReview(allQuestions.filter(q=>performanceOf(q)==="easy"))}><span>DOMINADAS</span><strong>{performanceCounts.easy}</strong></button>
+     </div>
+     <div className="mf-domain-grid" aria-label="Mapa das questões">{allQuestions.map(q=><button key={q.id} className={"mf-domain-dot "+performanceOf(q)} title={"Questão "+q.order+" · "+q.question} onClick={()=>startCustomReview([q])}/>)}</div>
+    </section>}
     {!bank&&<div className="mf-spaced-empty"><h3>Nenhum banco importado</h3><p>Importe o JSON criado no ChatGPT ou carregue o exemplo.</p></div>}
     {bank&&<div className="mf-spaced-tree">{filteredGroups.map(group=><article className="mf-spaced-group" key={group.index}>
      <div className="mf-spaced-group-head"><div><h3>{group.title}</h3><small>{group.sections.reduce((n,s)=>n+s.questions.length,0)} perguntas</small></div><button className="mf-spaced-btn" onClick={()=>startReview({scope:"group",group:String(group.index)})}>Revisar embaralhado</button></div>
@@ -400,7 +497,7 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
       <label>Intervalo máximo em dias<input className="mf-spaced-input" type="number" min={30} value={settings.maxDays} onChange={e=>setSettings({...settings,maxDays:Number(e.target.value)})}/></label>
      </div>
      <div className="mf-spaced-actions" style={{marginTop:22,justifyContent:"flex-start"}}><button className="mf-spaced-btn primary" onClick={saveSettingsNow}>Salvar configurações</button><button className="mf-spaced-btn" onClick={()=>{setSettings(DEFAULT_SETTINGS);localStorage.setItem(SETTINGS_KEY,JSON.stringify(DEFAULT_SETTINGS));}}>Restaurar padrão</button><button className="mf-spaced-btn danger" onClick={clearProgress}>Limpar somente progresso</button></div>
-     <p className="mf-spaced-note">O conteúdo das perguntas e respostas permanece separado do histórico de revisão. Esta estrutura permite substituir o motor de agendamento posteriormente sem reescrever o banco importado.</p>
+     <p className="mf-spaced-note">O conteúdo das perguntas e respostas permanece separado do histórico de revisão. Quando você está conectado à sua conta, banco, progresso e configurações são sincronizados automaticamente na nuvem; o navegador mantém também uma cópia local.</p>
     </div>
    </>}
   </main>
