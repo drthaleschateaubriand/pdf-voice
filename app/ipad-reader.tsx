@@ -5,6 +5,7 @@ import {loadLastOpenedDocument,saveLastOpenedDocument} from './document-cache';
 import {addCloudBookmark,deleteCloudBook,downloadCloudPdf,getCloudSession,listCloudLibrary,loadCloudPreferences,openCloudBook,removeCloudBookmark,saveCloudPreferences,saveCloudProgress,signInCloud,signOutCloud,signUpCloud,uploadCloudPdf,type CloudLibraryBook,type CloudSession} from './paper-cloud';
 import {splitIpadSentences,splitIpadSpeech} from '../lib/ipad-speech';
 import {parseEpub,type EpubBookData} from '../lib/epub-reader';
+import SpacedReview from './spaced-review';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
@@ -247,6 +248,7 @@ export default function IpadReader(){
  const [accountOpen,setAccountOpen]=useState(false),[accountEmail,setAccountEmail]=useState(''),[accountPassword,setAccountPassword]=useState(''),[accountBusy,setAccountBusy]=useState(false),[accountMessage,setAccountMessage]=useState('');
  const [audioCacheStats,setAudioCacheStats]=useState<AudioCacheStats>({entries:0,bytes:0});
  const [libraryOpen,setLibraryOpen]=useState(false),[libraryBooks,setLibraryBooks]=useState<CloudLibraryBook[]>([]),[libraryBusy,setLibraryBusy]=useState(false),[deletingBookId,setDeletingBookId]=useState(''),[uploadProgress,setUploadProgress]=useState<number|null>(null),[currentCloudStored,setCurrentCloudStored]=useState(false);
+ const [spacedReviewOpen,setSpacedReviewOpen]=useState(false);
  const highlightEnabledRef=useRef(true),focusModeRef=useRef(false),focusIndexRef=useRef(0),cloudSessionRef=useRef<CloudSession|null>(null),cloudBookIdRef=useRef('');
  const currentFileRef=useRef<{name:string;size:number}|null>(null),currentDocumentFileRef=useRef<File|null>(null);
  const cloudPickerModeRef=useRef<'add'|'attach'|null>(null),cloudPickerFingerprintRef=useRef('');
@@ -1558,6 +1560,7 @@ export default function IpadReader(){
     {doc&&<button style={button} aria-pressed={pageSidebarOpen} onClick={()=>setPageSidebarOpen(v=>!v)}>{pageSidebarOpen?'Fechar navegação':'Navegar no livro'}</button>}
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
+    <button style={button} onClick={()=>setSpacedReviewOpen(true)}>Revisão Espaçada</button>
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
     <button className="mf-theme-toggle" style={button} type="button" aria-pressed={darkMode} title={darkMode?'Usar modo dia':'Usar modo noite'} onClick={toggleTheme}>{darkMode?'☀ Dia':'☾ Noite'}</button>
     <button style={button} onClick={()=>void testVoice()}>Testar voz</button>
@@ -1584,6 +1587,8 @@ export default function IpadReader(){
     })();
    }}/>
   </header>}
+
+  {spacedReviewOpen&&<SpacedReview onClose={()=>setSpacedReviewOpen(false)}/>}
 
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
