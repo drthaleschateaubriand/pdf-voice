@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useRef,useState,type CSSProperties} from 'react';
+import {getCloudSession} from './paper-cloud';
 import {DEFAULT_TEACHERS,METHODS,PERSONALITIES,buildTeacherInstructions,loadSelectedTeacherId,loadTeacherProfiles,storeTeacherProfiles,type TeacherContext,type TeacherProfile} from './teacher-profiles';
 
 type ChatLine={id:number;role:'user'|'assistant';text:string};
@@ -11,7 +12,7 @@ const inputStyle:CSSProperties={border:'1px solid #d9cfc0',borderRadius:10,paddi
 const group:CSSProperties={border:'1px solid #e2dacd',borderRadius:14,padding:12,display:'grid',gap:12,background:'#fffdf9'};
 let messageSequence=0;
 
-export default function TeacherPanel({context,onClose,onResume}:{context:TeacherContext;onClose:()=>void;onResume:()=>void}){
+export default function TeacherPanel({context,onClose,onResume,onLogin,isLoggedIn}:{context:TeacherContext;onClose:()=>void;onResume:()=>void;onLogin:()=>void;isLoggedIn:boolean}){
  const [profiles,setProfiles]=useState<TeacherProfile[]>(loadTeacherProfiles);
  const [chosen,setChosen]=useState(loadSelectedTeacherId);
  const [messages,setMessages]=useState<ChatLine[]>([]);
@@ -109,7 +110,11 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
     stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});
     microphoneRef.current=stream;
    }
-   const tokenResponse=await fetch('/api/teacher-session',{method:'POST',cache:'no-store'});
+   const session=await getCloudSession();
+   if(!session?.access_token)throw new Error('Entre na sua conta Meu Foco para conversar com o professor.');
+   const tokenResponse=await fetch('/api/teacher-session',{
+    method:'POST',cache:'no-store',headers:{Authorization:'Bearer '+session.access_token}
+   });
    const tokenData=await tokenResponse.json() as {value?:string;error?:string};
    if(!tokenResponse.ok||!tokenData.value)throw new Error(tokenData.error||'Não foi possível autenticar a API Realtime.');
    const pc=new RTCPeerConnection();peerRef.current=pc;
@@ -228,12 +233,13 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
     <div style={{fontSize:12,color:'#766d61'}}>Alterações salvas automaticamente neste aparelho e enviadas ao professor durante a conversa.</div>
    </details>
    <div style={{...group,marginBottom:12}}>
+    {!isLoggedIn&&<div style={{borderRadius:12,padding:12,background:'#ffedcd',color:'#744c15',fontSize:13}}>Para usar a conversa por voz, entre na sua conta do Meu Foco. As configurações do professor podem ser editadas antes de entrar.<button type="button" style={{...accent,display:'block',marginTop:9}} onClick={onLogin}>Entrar na minha conta</button></div>}
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
      <strong style={{fontSize:14}}>Conversa</strong>
      <span role="status" style={{fontSize:12,color:'#496858'}}>{status}</span>
     </div>
     <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
-     <button type="button" disabled={busy} style={micEnabled?accent:btn} onClick={()=>void enableVoice()}>{busy?'Conectando...':micEnabled?'Silenciar microfone':'Levantar a mão · Falar'}</button>
+     <button type="button" disabled={busy||!isLoggedIn} style={micEnabled?accent:btn} onClick={()=>void enableVoice()}>{busy?'Conectando...':micEnabled?'Silenciar microfone':'Levantar a mão · Falar'}</button>
      <button type="button" style={btn} onClick={toggleSound}>{soundEnabled?'Silenciar áudio':'Ativar áudio'}</button>
      {playbackBlocked&&<button type="button" style={accent} onClick={restoreAudio}>Reproduzir áudio</button>}
      {connected&&<button type="button" style={btn} onClick={()=>{disconnect();setStatus('Conversa encerrada');}}>Desconectar</button>}
@@ -244,7 +250,7 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
     </div>
     <form onSubmit={e=>{e.preventDefault();void submitQuestion();}} style={{display:'flex',gap:7}}>
      <input value={question} onChange={e=>setQuestion(e.target.value)} aria-label="Pergunte ao professor" placeholder="Escreva sua pergunta..." style={{...inputStyle,flex:1,minWidth:0}} maxLength={1800}/>
-     <button type="submit" disabled={!question.trim()||busy} style={accent}>Enviar</button>
+     <button type="submit" disabled={!question.trim()||busy||!isLoggedIn} style={accent}>Enviar</button>
     </form>
     {error&&<p role="alert" style={{fontSize:13,color:'#a23d32',margin:0}}>{error}</p>}
     <div style={{fontSize:11,color:'#766d61'}}>A voz utiliza a API Realtime da OpenAI. Requer internet, permissão do microfone para perguntas faladas e chave da API configurada no servidor. O texto da página e suas perguntas são enviados à OpenAI durante a conversa.</div>
