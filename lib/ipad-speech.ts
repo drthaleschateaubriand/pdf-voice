@@ -9,6 +9,7 @@ export function splitIpadSentences(text:string):string[]{
  if(!clean)return [];
 
  const sentences:string[]=[];
+ const unitsThatCanEndSentences=new Set(['mg','ml','kg','mcg','mmol','mmhg','dl','ui']);
  const abbreviations=new Set([
   'dr','dra','sr','sra','prof','profa','etc','fig','tab','vs','cf','cap','aprox',
   'mín','máx','obs','ref','ed','vol','art','mg','ml','kg','mcg','mmol','mmhg',
@@ -20,7 +21,12 @@ export function splitIpadSentences(text:string):string[]{
   const next=clean[i+1];if(next&&next!==' ')continue;
   if(ch==='.'){
    const before=clean.slice(Math.max(0,i-16),i),m=before.match(/([0-9A-Za-zÀ-ÿ]+)$/),word=(m?.[1]||'').toLowerCase();
-   if(next&&(word.length===1||abbreviations.has(word)))continue;
+   if(next&&(word.length===1||abbreviations.has(word))){
+    // Keep abbreviations together (Dr. Silva, 20 mg. ao dia), but a
+    // physical unit followed by a new capitalized sentence is a boundary.
+    const newSentenceAfterUnit=unitsThatCanEndSentences.has(word)&&/^[A-ZÀ-Ý]/.test(clean.slice(i+1).trimStart());
+    if(!newSentenceAfterUnit)continue;
+   }
   }
   const sentence=clean.slice(start,i+1).trim();if(sentence)sentences.push(sentence);
   start=i+1;while(clean[start]===' ')start++;
