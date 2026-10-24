@@ -22,6 +22,7 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
  const [busy,setBusy]=useState(false);
  const [micEnabled,setMicEnabled]=useState(false);
  const [soundEnabled,setSoundEnabled]=useState(true);
+ const [playbackBlocked,setPlaybackBlocked]=useState(false);
  const [settingsOpen,setSettingsOpen]=useState(false);
  const peerRef=useRef<RTCPeerConnection|null>(null);
  const channelRef=useRef<RTCDataChannel|null>(null);
@@ -115,7 +116,7 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
    const audio=new Audio();audio.autoplay=true;audio.setAttribute('playsinline','true');audio.muted=!soundEnabled;outputRef.current=audio;
    pc.ontrack=event=>{
     audio.srcObject=event.streams[0]||new MediaStream([event.track]);
-    void audio.play().catch(()=>setStatus('Toque em Ativar áudio para ouvir o professor.'));
+    void audio.play().then(()=>setPlaybackBlocked(false)).catch(()=>{setPlaybackBlocked(true);setStatus('Toque em Reproduzir áudio para ouvir o professor.');});
    };
    if(stream){stream.getAudioTracks().forEach(track=>pc.addTrack(track,stream));}
    else pc.addTransceiver('audio',{direction:'recvonly'});
@@ -138,7 +139,7 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
    dc.send(JSON.stringify({type:'session.update',session:{
     type:'realtime',instructions:instructions+(summary?'\nHistórico recente da conversa anterior:\n'+summary:''),
     output_modalities:['audio'],
-    audio:{input:{turn_detection:{type:'semantic_vad',create_response:true,interrupt_response:true},transcription:{model:'gpt-4o-mini-transcribe'}}}
+    audio:{input:{turn_detection:{type:'semantic_vad',create_response:true,interrupt_response:true},transcription:{model:'gpt-live-transcribe',languages:['pt']}}}
    }}));
    setConnected(true);setMicEnabled(Boolean(stream));setStatus(stream?'Professor conectado. Pode falar.':'Professor conectado. Digite sua pergunta.');
    return dc;
@@ -165,6 +166,12 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
    return;
   }
   try{await connect(true);}catch{}
+ }
+ function restoreAudio(){
+  const audio=outputRef.current;
+  if(!audio)return;
+  audio.muted=false;setSoundEnabled(true);
+  void audio.play().then(()=>{setPlaybackBlocked(false);setStatus('Áudio do professor liberado');}).catch(()=>setError('O Safari bloqueou o áudio. Toque novamente para liberar.'));
  }
  function toggleSound(){
   const next=!soundEnabled;setSoundEnabled(next);
@@ -228,6 +235,7 @@ export default function TeacherPanel({context,onClose,onResume}:{context:Teacher
     <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
      <button type="button" disabled={busy} style={micEnabled?accent:btn} onClick={()=>void enableVoice()}>{busy?'Conectando...':micEnabled?'Silenciar microfone':'Levantar a mão · Falar'}</button>
      <button type="button" style={btn} onClick={toggleSound}>{soundEnabled?'Silenciar áudio':'Ativar áudio'}</button>
+     {playbackBlocked&&<button type="button" style={accent} onClick={restoreAudio}>Reproduzir áudio</button>}
      {connected&&<button type="button" style={btn} onClick={()=>{disconnect();setStatus('Conversa encerrada');}}>Desconectar</button>}
     </div>
     <div aria-live="polite" style={{minHeight:116,maxHeight:'30dvh',overflowY:'auto',background:'#fbf9f4',border:'1px solid #e8e0d3',borderRadius:12,padding:10,display:'grid',alignContent:'start',gap:9}}>
