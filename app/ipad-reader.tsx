@@ -7,6 +7,7 @@ import {splitIpadSentences,splitIpadSpeech} from '../lib/ipad-speech';
 import {parseEpub,type EpubBookData} from '../lib/epub-reader';
 import SpacedReview from './spaced-review';
 import TeacherPanel from './teacher-panel';
+import {Hand} from 'lucide-react';
 
 type Provider={id:string;name:string;model:string;configured:boolean;voices:{id:string;name:string}[]};
 type Mode='idle'|'loading'|'playing'|'paused';
@@ -1589,7 +1590,7 @@ export default function IpadReader(){
    <nav className="pv-top-actions" style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'flex-end'}}>
     {doc&&<button style={button} aria-pressed={pageSidebarOpen} onClick={()=>setPageSidebarOpen(v=>!v)}>{pageSidebarOpen?'Fechar navegação':'Navegar no livro'}</button>}
     {doc&&<button style={button} onClick={()=>{setCompactControls(true);setCompact(true);}}>Modo leitura</button>}
-    {doc&&<button type="button" style={button} onClick={openTeacher} aria-label="Levantar a mão e conversar com o professor">Professor IA</button>}
+    {doc&&<button type="button" style={{...button,display:'inline-flex',alignItems:'center',gap:6}} onClick={openTeacher} aria-label="Levantar a mão e conversar com o professor"><Hand size={17}/> Professor IA</button>}
     {cloudSession&&<button style={button} onClick={()=>{void refreshCloudLibrary();setLibraryOpen(true);}}>Minha Biblioteca</button>}
     <button style={button} onClick={()=>setSpacedReviewOpen(true)}>Revisão Espaçada</button>
     <button style={button} onClick={()=>{setAccountMessage('');void refreshAudioCacheStats();setAccountOpen(true);}}>{cloudSession?.user.email?'Conta':'Entrar'}</button>
@@ -1720,7 +1721,7 @@ export default function IpadReader(){
     <button style={button} disabled={!doc||page<=1} onClick={()=>void goPage(page-1)}>{isEpub?'Capítulo anterior':'Página anterior'}</button>
     <button style={button} disabled={!sentences.length||index<=0} onClick={()=>moveSentence(-1)}>Trecho anterior</button>
     <button style={primary} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
-    <button type="button" style={{...button,fontWeight:700}} disabled={!doc} onClick={openTeacher} aria-label="Levantar a mão: perguntar ao Professor IA">Professor · Levantar a mão</button>
+    <button type="button" style={{...button,fontWeight:700,display:'inline-flex',alignItems:'center',gap:6}} disabled={!doc} onClick={openTeacher} aria-label="Levantar a mão: perguntar ao Professor IA"><Hand size={17}/> Professor</button>
     <button type="button" style={{...button,borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} disabled={!doc} onClick={stopAndClearAudio}>Parar</button>
     <button style={button} disabled={!sentences.length||index>=sentences.length-1} onClick={()=>moveSentence(1)}>Próximo trecho</button>
     <button style={button} disabled={!doc||page>=pages} onClick={()=>void goPage(page+1)}>{isEpub?'Próximo capítulo':'Próxima página'}</button>
@@ -1886,7 +1887,7 @@ export default function IpadReader(){
    >&gt;</button>
   </>}
 
-  {compact&&doc&&!compactControls&&<button type="button" aria-label="Levantar a mão e perguntar ao professor" title="Professor IA" style={{...primary,position:'fixed',right:16,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:31,fontWeight:800,padding:'12px 16px',boxShadow:'0 6px 25px #0005'}} onClick={openTeacher}>Professor · Levantar a mão</button>}
+  {compact&&doc&&!compactControls&&<button type="button" aria-label="Levantar a mão e perguntar ao professor" title="Professor IA" style={{...primary,position:'fixed',right:16,bottom:'calc(20px + env(safe-area-inset-bottom, 0px))',zIndex:31,fontWeight:800,padding:'12px 16px',boxShadow:'0 6px 25px #0005'}} onClick={openTeacher}><Hand size={18} style={{verticalAlign:'middle',marginRight:6}}/>Professor</button>}
 
   {selectedText&&<div style={{position:'fixed',left:'50%',bottom:compact?'calc(72px + env(safe-area-inset-bottom, 0px))':'150px',transform:'translateX(-50%)',zIndex:45,display:'flex',alignItems:'center',gap:6,background:'rgba(18,22,28,.94)',color:'white',borderRadius:14,padding:'6px 8px',boxShadow:'0 5px 22px rgba(0,0,0,.3)',whiteSpace:'nowrap'}}>
    <span style={{fontSize:12,padding:'0 4px'}}>Texto selecionado</span>
@@ -1929,7 +1930,7 @@ export default function IpadReader(){
     <span style={{...small,whiteSpace:'nowrap'}}>/ {pages}</span>
     <button type="submit" style={{...button,padding:'7px 8px'}}>Ir</button>
     <button type="button" style={{...primary,padding:'7px 11px'}} disabled={!sentences.length} onClick={toggle}>{mode==='playing'?'Pausar':mode==='paused'?'Continuar':'Ler'}</button>
-    <button type="button" style={{...button,padding:'7px 10px',fontWeight:800}} onClick={openTeacher} aria-label="Levantar a mão para falar com o professor">Mão · Professor</button>
+    <button type="button" style={{...button,padding:'7px 10px',fontWeight:800,display:'inline-flex',alignItems:'center',gap:5}} onClick={openTeacher} aria-label="Levantar a mão para falar com o professor"><Hand size={18}/> Professor</button>
     <button type="button" style={{...button,padding:'7px 9px',borderColor:'#d46f51',color:'#a84d35',fontWeight:700}} onClick={stopAndClearAudio}>Parar</button>
     <button type="button" style={{...button,padding:'7px 9px'}} onClick={()=>setCompact(false)}>Menu</button>
     <button type="button" aria-label={highlightEnabled?'Retirar destaque':'Mostrar destaque'} style={{...button,padding:'7px 9px'}} onClick={toggleHighlight}>{highlightEnabled?'Sem destaque':'Destacar'}</button>
