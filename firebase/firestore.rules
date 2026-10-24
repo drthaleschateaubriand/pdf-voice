@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Everything is namespaced beneath the authenticated owner.
+    match /users/{userId}/{document=**} {
+      allow read, create, update, delete:
+        if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
