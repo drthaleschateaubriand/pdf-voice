@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import {DEFAULT_TEACHERS,buildTeacherInstructions,loadTeacherProfiles,PERSONALITIES,METHODS} from '../app/teacher-profiles.ts';
+
+assert.equal(loadTeacherProfiles().length,3);
+assert.equal(PERSONALITIES.exigente,'Firme, exigente e cobrador');
+assert.equal(METHODS.profundo,'Aprofundamento técnico');
+const context={title:'Diabetes Mellitus',location:'Página 15',passage:'A insulina controla a glicemia.',pageText:'Os hepatócitos produzem glicose.',selection:''};
+const defaultPrompt=buildTeacherInstructions(DEFAULT_TEACHERS[0],context);
+assert.match(defaultPrompt,/Página 15/);
+assert.match(defaultPrompt,/hepatócitos/);
+assert.match(defaultPrompt,/responda à dúvida/);
+assert.match(defaultPrompt,/pergunta curta de fixação/);
+const customized={...DEFAULT_TEACHERS[1],before:true,after:false,reveal:false,examples:false,custom:'Faça perguntas clínicas antes de explicar'};
+const text=buildTeacherInstructions(customized,context);
+assert.match(text,/pergunta breve de sondagem/);
+assert.match(text,/raciocínio antes de dar a resposta/);
+assert.match(text,/Faça perguntas clínicas/);
+assert.doesNotMatch(text,/ofereça uma pergunta curta de fixação/);
+assert.doesNotMatch(text,/Use exemplos concretos sempre/);
+console.log('PASS: Apollo 14 teacher profiles, didactic options and book context.');
