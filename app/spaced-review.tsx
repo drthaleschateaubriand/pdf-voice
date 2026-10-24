@@ -69,18 +69,19 @@ function emptyReview():ReviewState{
  return {nextReview:null,lastReview:null,intervalDays:0,reps:0,lapses:0,lastRating:null,history:[]};
 }
 
-function normalizeQuestion(raw:any,groupTitle:string,sectionTitle:string,order:number):StudyQuestion{
- const question=String(raw?.question??raw?.pergunta??"");
- const answer=String(raw?.answer??raw?.resposta??"");
+function normalizeQuestion(input:unknown,groupTitle:string,sectionTitle:string,order:number):StudyQuestion{
+ const raw=(input&&typeof input==="object"&&!Array.isArray(input)?input:{}) as Record<string,unknown>;
+ const question=String(raw.question??raw.pergunta??"");
+ const answer=String(raw.answer??raw.resposta??"");
  if(!question.trim()||!answer.trim())throw new Error("Há uma pergunta ou resposta vazia na posição "+order+".");
- const review=raw?.review||{};
+ const review=(raw.review&&typeof raw.review==="object"&&!Array.isArray(raw.review)?raw.review:{}) as Partial<ReviewState>;
  return {
-  id:String(raw?.id||makeId()),
-  order:Number.isFinite(Number(raw?.order))?Number(raw.order):order,
+  id:String(raw.id||makeId()),
+  order:Number.isFinite(Number(raw.order))?Number(raw.order):order,
   question,
   answer,
-  tags:Array.isArray(raw?.tags)?raw.tags.map(String):[],
-  source:raw?.source==null?null:String(raw.source),
+  tags:Array.isArray(raw.tags)?raw.tags.map(String):[],
+  source:raw.source==null?null:String(raw.source),
   groupTitle,
   sectionTitle,
   review:{
@@ -95,34 +96,37 @@ function normalizeQuestion(raw:any,groupTitle:string,sectionTitle:string,order:n
  };
 }
 
-function normalizeBank(raw:any):StudyBank{
- if(!raw||typeof raw!=="object")throw new Error("JSON inválido.");
+function normalizeBank(input:unknown):StudyBank{
+ if(!input||typeof input!=="object"||Array.isArray(input))throw new Error("JSON inválido.");
+ const raw=input as Record<string,unknown>;
  let order=1;
  let groups:StudyGroup[]=[];
  if(Array.isArray(raw.groups)){
-  groups=raw.groups.map((group:any,gi:number)=>{
-   const groupTitle=String(group?.title||"Tema "+(gi+1));
-   const sectionsInput=Array.isArray(group?.sections)?group.sections:[{title:"",questions:Array.isArray(group?.questions)?group.questions:[]}];
+  groups=raw.groups.map((entry:unknown,gi:number)=>{
+   const group=(entry&&typeof entry==="object"&&!Array.isArray(entry)?entry:{}) as Record<string,unknown>;
+   const groupTitle=String(group.title||"Tema "+(gi+1));
+   const sectionsInput:unknown[]=Array.isArray(group.sections)?group.sections:[{title:"",questions:Array.isArray(group.questions)?group.questions:[]}];
    return {
     title:groupTitle,
-    sections:sectionsInput.map((section:any)=>{
-     const sectionTitle=String(section?.title||"");
+    sections:sectionsInput.map((entry:unknown)=>{
+     const section=(entry&&typeof entry==="object"&&!Array.isArray(entry)?entry:{}) as Record<string,unknown>;
+     const sectionTitle=String(section.title||"");
      return {
       title:sectionTitle,
-      questions:(Array.isArray(section?.questions)?section.questions:[]).map((q:any)=>normalizeQuestion(q,groupTitle,sectionTitle,order++))
+      questions:(Array.isArray(section.questions)?section.questions:[]).map((q:unknown)=>normalizeQuestion(q,groupTitle,sectionTitle,order++))
      };
     })
    };
   });
  }else if(Array.isArray(raw.questions)){
   const title=String(raw.title||"Banco importado");
-  groups=[{title,sections:[{title:"",questions:raw.questions.map((q:any)=>normalizeQuestion(q,title,"",order++))}]}];
+  groups=[{title,sections:[{title:"",questions:raw.questions.map((q:unknown)=>normalizeQuestion(q,title,"",order++))}]}];
  }else{
   throw new Error("O JSON precisa conter 'groups' ou 'questions'.");
  }
  const total=groups.reduce((sum,g)=>sum+g.sections.reduce((n,s)=>n+s.questions.length,0),0);
  if(!total)throw new Error("Nenhuma pergunta foi encontrada.");
- return {schemaVersion:1,id:String(raw.id||makeId("bank")),title:String(raw.title||"Banco de questões"),importedAt:raw.importedAt||new Date().toISOString(),groups};
+ return {schemaVersion:1,id:String(raw.id||makeId("bank")),title:String(raw.title||"Banco de questões"),importedAt:String(raw.importedAt||new Date().toISOString()),groups};
 }
 
 function addDuration(date:Date,value:number,unit:"minutes"|"hours"|"days"|"weeks"){
@@ -471,7 +475,7 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
 
    {tab==="review"&&<>
     <div className="mf-spaced-hero"><div><h2>Revisão</h2><p>Recuperação ativa com resposta inicialmente oculta e intervalo configurável.</p></div><div className="mf-spaced-actions">
-     <select className="mf-spaced-input" value={reviewScope} onChange={e=>setReviewScope(e.target.value as any)}><option value="due">Somente vencidas</option><option value="all">Todas as perguntas</option><option value="group">Tema selecionado</option></select>
+     <select className="mf-spaced-input" value={reviewScope} onChange={e=>setReviewScope(e.target.value as "due"|"all"|"group")}><option value="due">Somente vencidas</option><option value="all">Todas as perguntas</option><option value="group">Tema selecionado</option></select>
      <select className="mf-spaced-input" value={reviewGroup} onChange={e=>setReviewGroup(e.target.value)}><option value="">Escolha um tema</option>{bank?.groups.map((g,i)=><option key={i} value={i}>{g.title}</option>)}</select>
      <button className="mf-spaced-btn primary" onClick={()=>startReview()}>Começar revisão</button>
     </div></div>
@@ -481,7 +485,7 @@ export default function SpacedReview({onClose}:{onClose:()=>void}){
      {answerShown?<><div className="mf-spaced-answer"><div className="mf-spaced-label">RESPOSTA</div>{current.answer}</div><div className="mf-spaced-ratings">
       <button className="mf-spaced-rate again" onClick={()=>rate("again")}>Não lembrei</button><button className="mf-spaced-rate hard" onClick={()=>rate("hard")}>Difícil</button><button className="mf-spaced-rate good" onClick={()=>rate("good")}>Lembrei</button><button className="mf-spaced-rate easy" onClick={()=>rate("easy")}>Muito fácil</button>
      </div></>:<button className="mf-spaced-btn primary mf-spaced-wide" onClick={()=>setAnswerShown(true)}>Mostrar resposta</button>}
-     <details className="mf-spaced-manual"><summary>Ajustar esta pergunta manualmente</summary><div className="mf-spaced-manual-row"><input className="mf-spaced-input" type="number" min={1} value={manualValue} onChange={e=>setManualValue(Number(e.target.value))}/><select className="mf-spaced-input" value={manualUnit} onChange={e=>setManualUnit(e.target.value as any)}><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">dias</option><option value="weeks">semanas</option></select><button className="mf-spaced-btn" onClick={scheduleManual}>Agendar</button></div></details>
+     <details className="mf-spaced-manual"><summary>Ajustar esta pergunta manualmente</summary><div className="mf-spaced-manual-row"><input className="mf-spaced-input" type="number" min={1} value={manualValue} onChange={e=>setManualValue(Number(e.target.value))}/><select className="mf-spaced-input" value={manualUnit} onChange={e=>setManualUnit(e.target.value as "minutes"|"hours"|"days"|"weeks")}><option value="minutes">minutos</option><option value="hours">horas</option><option value="days">dias</option><option value="weeks">semanas</option></select><button className="mf-spaced-btn" onClick={scheduleManual}>Agendar</button></div></details>
     </article></div>}
    </>}
 

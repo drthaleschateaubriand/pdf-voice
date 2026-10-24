@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, apollo-14-professor-realtime]
   workflow_dispatch:
 
 jobs:

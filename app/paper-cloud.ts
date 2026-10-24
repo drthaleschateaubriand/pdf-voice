@@ -1,5 +1,5 @@
-const SUPABASE_URL='https://cmgwbowbvcwmnluzevoq.supabase.co';
-const SUPABASE_KEY='sb_publishable_xNqu8APjg_nnM-h_fWYkmw_AY2sjNCO';
+export const SUPABASE_URL='https://cmgwbowbvcwmnluzevoq.supabase.co';
+export const SUPABASE_KEY='sb_publishable_xNqu8APjg_nnM-h_fWYkmw_AY2sjNCO';
 const SESSION_KEY='paper-voice-cloud-session';
 
 export type CloudSession={
