@@ -13,9 +13,9 @@
   },
   "scripts": {
     "install:ci": "node scripts/install-ci.mjs",
-    "dev": "vinext dev --port 5173 --hostname 127.0.0.1",
-    "build": "vinext build",
-    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
     "lint": "eslint app lib desktop tests scripts",
     "predev": "node scripts/pdfjs-assets.mjs && node scripts/local-key.mjs",
     "desktop:build": "node scripts/pdfjs-assets.mjs && vite build --config desktop/vite.config.mjs && node desktop/prepare.mjs",
@@ -24,7 +24,9 @@
     "test": "node --import ./tests/register-ts.mjs tests/verify-phrases.mjs && node --import ./tests/register-ts.mjs tests/verify-decimals.mjs && node --import ./tests/register-ts.mjs tests/verify-equations.mjs && node --import ./tests/register-ts.mjs tests/verify-lists.mjs && node --import ./tests/register-ts.mjs tests/verify-reflow.mjs && node --import ./tests/register-ts.mjs tests/verify-pdf.mjs && node --import ./tests/register-ts.mjs tests/verify-buffer.mjs && node --import ./tests/register-ts.mjs tests/verify-selection.mjs && node --import ./tests/register-ts.mjs tests/verify-playback.mjs && node --import ./tests/register-ts.mjs tests/verify-ipad-speech.mjs && node --import ./tests/register-ts.mjs tests/verify-reader.mjs && node --import ./tests/register-ts.mjs tests/verify-teacher.mjs",
     "test:desktop": "node tests/verify-desktop.cjs",
     "postinstall": "node scripts/pdfjs-assets.mjs",
-    "prebuild": "node scripts/pdfjs-assets.mjs"
+    "prebuild": "node scripts/pdfjs-assets.mjs",
+    "build:cloudflare": "vinext build",
+    "dev:cloudflare": "vinext dev --port 5173 --hostname 127.0.0.1"
   },
   "dependencies": {
     "lucide-react": "^1.31.0",
