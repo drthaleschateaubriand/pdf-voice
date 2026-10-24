@@ -1621,7 +1621,7 @@ export default function IpadReader(){
   </header>}
 
   {spacedReviewOpen&&<SpacedReview onClose={()=>setSpacedReviewOpen(false)}/>}
-  {teacherOpen&&doc&&<TeacherPanel context={{title:name,location:(documentKind==='epub'?'Capítulo ':'Página ')+page,passage:sentences[index]||'',pageText:sentences.join(' '),selection:selectedText}} onClose={()=>closeTeacher(false)} onResume={()=>closeTeacher(true)}/>}
+  {teacherOpen&&doc&&<TeacherPanel context={{title:name,location:(documentKind==='epub'?'Capítulo ':'Página ')+page,passage:sentences[index]||'',pageText:sentences.join(' '),selection:selectedText}} isLoggedIn={Boolean(cloudSession)} onLogin={()=>{setTeacherOpen(false);setAccountMessage('');setAccountOpen(true);}} onClose={()=>closeTeacher(false)} onResume={()=>closeTeacher(true)}/>}
 
   <section style={compact&&doc?{padding:0,display:'block',flex:1,minHeight:0}:{padding:12,display:'grid',gap:10,flex:1}}>
    {error&&<div role="alert" style={{...card,borderColor:'#b84a4a',color:'#8c2727'}}>{error}</div>}
