@@ -1,0 +1,11 @@
+# Meu Foco Apollo 14 — independent Firebase App Hosting instance.
+# Connect this dedicated branch, NOT main, when creating the backend.
+# Set NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_PROJECT_ID and
+# NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET as environment variables in App Hosting.
+# Add OPENAI separately as an App Hosting secret (Cloud Secret Manager).
+runConfig:
+  minInstances: 0
+  maxInstances: 5
+  concurrency: 20
+  cpu: 1
+  memoryMiB: 1024
