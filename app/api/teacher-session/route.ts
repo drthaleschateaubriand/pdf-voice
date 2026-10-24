@@ -1,8 +1,8 @@
-import { env } from 'cloudflare:workers';
-import {SUPABASE_KEY,SUPABASE_URL} from '../../paper-cloud';
+// Node.js Firebase App Hosting runtime. Firebase validates the user's ID token.
+export const runtime='nodejs';
 
 // Apollo 14: only short-lived Realtime credentials reach the browser.
-// The permanent OPENAI key stays in the Cloudflare Worker.
+// The permanent OPENAI key stays in Firebase App Hosting Secret Manager.
 export async function POST(request:Request){
  const origin=request.headers.get('origin');
  if(origin&&origin!==new URL(request.url).origin)return Response.json({error:'Origem não autorizada.'},{status:403});
@@ -10,16 +10,19 @@ export async function POST(request:Request){
  const jwt=bearer.startsWith('Bearer ')?bearer.slice(7).trim():'';
  if(!jwt||jwt.length>4096)return Response.json({error:'Entre na sua conta Meu Foco antes de conversar com o professor.'},{status:401});
  let identity:{id?:string};
+ const firebaseKey=process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+ if(!firebaseKey)return Response.json({error:'Firebase Authentication não configurado.'},{status:503});
  try{
-  const verify=await fetch(SUPABASE_URL+'/auth/v1/user',{
-   headers:{apikey:SUPABASE_KEY,Authorization:'Bearer '+jwt},
+  const verify=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key='+encodeURIComponent(firebaseKey),{
+   method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({idToken:jwt}),
    signal:AbortSignal.any([request.signal,AbortSignal.timeout(10000)])
   });
   if(!verify.ok)return Response.json({error:'Sua sessão expirou. Entre novamente no Meu Foco.'},{status:401});
-  identity=await verify.json() as {id?:string};
-  if(!identity?.id)return Response.json({error:'Não foi possível validar a sessão do leitor.'},{status:401});
+  const result=await verify.json() as {users?:Array<{localId?:string}>};
+  identity={id:result.users?.[0]?.localId};
+  if(!identity.id)return Response.json({error:'Não foi possível validar sua conta Firebase.'},{status:401});
  }catch{return Response.json({error:'Não foi possível validar sua conta. Tente novamente.'},{status:503});}
- const key=(env as Record<string,unknown>).OPENAI;
+ const key=process.env.OPENAI;
  if(typeof key!=='string'||!key.trim())return Response.json({error:'Configure a chave OPENAI no servidor para usar o professor.'},{status:503});
  try{
   const response=await fetch('https://api.openai.com/v1/realtime/client_secrets',{
