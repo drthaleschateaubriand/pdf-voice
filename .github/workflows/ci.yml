@@ -18,4 +18,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
+      - run: node tests/verify-firebase.mjs
       - run: npm run build
